@@ -1,0 +1,345 @@
+---
+title: "Data Cleaning for eQTL analysis"
+author: "Gordon Kordas"
+date: "September 25, 2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+knitr::opts_knit$set(root.dir = "C:/Repositories/mirna_paper")
+
+rm(list = ls())
+```
+
+```{r, source}
+source("R Code/functions/eqtl_cleaning_functions.R")
+```
+
+##genotypes
+
+```{r, genotypes}
+##### import data #####
+
+# genotype/SNP data #
+genotype <- as.data.frame(read.table("Data/LXSgeno.mm10.txt",header = TRUE,stringsAsFactors = FALSE))
+
+# remove strains not in miRNA dataset #
+genotype2 <- subset(genotype, select = -c(LXS10m,LXS28m,LXS35m,LXS51m,LXS56m,LXS62m,LXS68m))
+rownames(genotype2) <- genotype$rs.Number
+
+parent_alleles <- genotype2[,c(4,5)]
+
+# drop parental strains #
+genotype2 <- as.matrix(genotype2[,-c(1:5)])
+
+genotype.alleles <- geno.alleles(genotype2)
+
+# remove rows with missingness #
+genotype.alleles.complete <- genotype.alleles[complete.cases(genotype.alleles),]
+#saveRDS(genotype.alleles.complete,"Data/dataprocessed/genotypeAllelesComp.rds")
+
+
+#===================================#
+# which parent is the minor allele? #
+#===================================#
+minor_nucleo <- geno.minor(genotype2)
+parent_df <- as.data.frame(cbind(parent_alleles,minor_nucleo))
+colnames(parent_df) <- c("ISS","ILS","minor")
+parent_df$minor_allele <- ifelse(parent_df$ISS == parent_df$minor,"S","L")
+saveRDS(parent_df,"Data/dataprocessed/parent_allele_match.rds")
+
+# find snp locations #
+snpLocs <- genotype[genotype$rs.Number %in% rownames(genotype.alleles.complete),]
+rownames(snpLocs) <- snpLocs$rs.Number
+
+#saveRDS(snpLocs[,c(2,3)],"Data/dataprocessed/snpLocations.rds")
+
+# compress down to strain distribution patterns #
+genotype.sdp <- unique(genotype.alleles.complete)
+
+# remove "m" from genotype data names #
+
+colStrings2 <- colnames(genotype.sdp)
+newGenoNames <- colStrings2 %>% str_replace("m", "")
+
+# add new colnames to genotype dataframe #
+colnames(genotype.sdp) <- newGenoNames
+
+#saveRDS(genotype.sdp,"Data/dataprocessed/sdpData.rds")
+```
+
+###genotype locations
+
+```{r, geno locations}
+# match rows in full dataset with rows in "binary" dataset #
+rownames(genotype) <- genotype$rs.Number
+genotype.df <- genotype[,-1]
+
+library(sqldf)
+
+t1 <- as.data.frame(rownames(genotype.alleles.complete))
+t2 <- as.data.frame(rownames(genotype.df))
+
+rowDiff <- as.vector(t(sqldf::sqldf('SELECT * FROM t2 EXCEPT SELECT * FROM t1'))) 
+
+'%ni%' <- Negate('%in%')
+# drop rows in genotype dataframe that are not found genotype binary #
+genotype.df <- genotype.df[rownames(genotype.df) %ni% rowDiff,] 
+
+# chromosome location and bp for each genotype pre SDP compression #
+levels(genotype.df$Chr) <- c(levels(genotype.df$Chr),"20")
+genotype.df[genotype.df$Chr=="X","Chr"] <- 20
+
+
+chromosome <- as.numeric(as.character(genotype.df$Chr))
+bp.vec <- genotype.df$bp
+
+
+# corresponding row in compressed strain distribution pattern dataset #
+library(prodlim)
+match.keys <- row.match(as.data.frame(genotype.alleles.complete),as.data.frame(genotype.sdp))
+match.keys <- factor(match.keys)
+levels(match.keys) <- rownames(genotype.sdp)
+match.df <- cbind(as.character(match.keys),rownames(genotype.alleles.complete))
+colnames(match.df) <- c("sdp","snp")
+#write.csv(match.df,"Data/dataprocessed/correspondingSNPs.csv",row.names = FALSE)
+
+# combine chromosome, bp, and matching keys for SDP #
+sdpLocation.df <- as.data.frame(cbind(chromosome,bp.vec,match.keys))
+write.csv(sdpLocation.df,"Data/dataprocessed/correspSNPlocs.csv")
+
+# find median bp for SDP #
+medianBpSDP <- tapply(sdpLocation.df$bp.vec , sdpLocation.df$match.keys, median)
+
+# chromosomes for different SDPs #
+chromoSDP <- tapply(sdpLocation.df$chromosome , sdpLocation.df$match.keys, median)
+chromoSDP[chromoSDP == 20] <- "x"
+
+# write SDP location #
+sdpLoc.df <- as.data.frame(cbind(chromoSDP,as.integer(medianBpSDP)))
+#write.csv(sdpLoc.df, "Data/dataprocessed/sdpLocations.csv")  # with rs.number
+
+sdpLoc.df$V2 <- as.numeric(as.character(sdpLoc.df$V2))
+colnames(sdpLoc.df) <- c("chromoSDP","medianBpSDP")
+
+#write.csv(sdpLoc.df,"Data/dataprocessed/medianSDPlocations.csv",row.names = FALSE) # without rs.number
+```
+
+```{r, data with names}
+rownames(sdpLoc.df) <- rownames(genotype.sdp)
+write.csv(sdpLoc.df,"Data/dataprocessed/sdpLocations.csv")
+
+# write sdp data as csv file for transportability #
+write.csv(genotype.sdp,"Data/dataprocessed/sdpData.csv")
+```
+
+###prep for R qtl package
+
+```{r, genotype prep qtl}
+
+sdpForQTLpackage <- genotypeqtlPackagePrep(genotype.sdp,2,0,sdpLoc.df)
+
+# write to csv file #
+write.csv(sdpForQTLpackage,"Data/dataprocessed/sdpForQtlPackage.csv",row.names = FALSE)  
+
+############ HAVE TO POST PROCESS.  REMOVE NAs AND CREATE BLANK SPACE FOR R QTL PACKAGE TO WORK ##################
+```
+
+##miRNA
+
+```{r, import data}
+load('Data/mirna.data.RObj') # from Pratyay Rudra on 09/12/2018
+
+miRNA09.12.2018 <- mirna.nb.adj  # this is the data file that Pratyay Rudra used in his subsequent papers
+
+# save heritability results from Pratyaya Rudra for eQTL evaluation #
+load('Data/herit.analysis.done.Robj')
+```
+
+###clean mirna names
+```{r,clean mirna names}
+cleanNames <- lxsCleanMirNames(rownames(miRNA09.12.2018),miRNA09.12.2018)
+rownames(miRNA09.12.2018) <- cleanNames
+
+# heritablility p values #
+rownames(pval.vst) <- cleanNames
+#saveRDS(pval.vst,"Data/dataprocessed/heritVSTpvals.rds")
+rownames(vpc.vst) <- cleanNames
+#saveRDS(vpc.vst,"Data/dataprocessed/heritVPC_vst.rds")
+```
+
+###vst transformation
+```{r, vst transformation}
+library(DESeq2)
+
+# 09/2018 #
+LXSmiRNA <- miRNA09.12.2018
+LXSstrains <- strains
+
+cds <- DESeqDataSetFromMatrix(countData = round(LXSmiRNA), 
+                              colData = data.frame(strain = strains),
+                              design = ~ strain)
+
+cds <- estimateSizeFactors(cds)
+cds <- estimateDispersions(cds, fitType = "local")
+vsd <- DESeq2::varianceStabilizingTransformation(cds, fitType = "local")
+miRNA09.12.2018.vst <- assay(vsd)
+#write.csv(miRNA09.12.2018.vst,"Data/dataprocessed/miRNA_all_samples.csv")
+```
+
+###average across strains
+```{r,average data}
+# average over samples #
+miRNA.avg <- avgStrain(miRNA09.12.2018.vst,colnames(miRNA09.12.2018.vst))
+
+# match strain order to genotype data #
+miRNA.avg <- miRNA.avg[,colnames(genotype.sdp)]
+
+# write for later use #
+write.csv(miRNA.avg,"Data/dataprocessed/miRNA_avg.csv")
+```
+
+###prep for R qtl package 
+
+```{r,qtl package prep}
+# use qtl prep function #
+miRNA_Rqtl <- qtlPackagePrep(miRNA.avg)
+
+# write to csv #
+write.csv(miRNA_Rqtl,"Data/dataprocessed/miRNAqtlPackage.csv",row.names = FALSE)
+```
+
+###mirna locations
+
+See mirna locations R script.  Final mirna locations are found after eQTL analysis due to multiple locations being present for some mirnas.
+
+
+##mRNA
+
+```{r,mRNA cleaning}
+#---------------------------------------#
+# read in Data 
+#---------------------------------------#
+
+# ensemble gene data #
+ensemble.df <- as.data.frame(read.table("Data/Adjusted_rma.summary.txt",header = TRUE))
+
+#---------------------------------------#
+# clean data
+#---------------------------------------#
+
+# add ensemble names as rownames #
+rownames(ensemble.df) <- ensemble.df$ProbeID
+ensemble.df <- as.matrix(ensemble.df[,-1])
+
+
+colStrings <- colnames(ensemble.df)
+
+#-----------------------------------#
+#FUNCTION: remove characters at .
+#-----------------------------------#
+subEnsemblestr <- function(ensembleString){
+  sub(pattern ='\\..*',"",ensembleString)
+}
+
+newEnsblNames <- sapply(colStrings,FUN = subEnsemblestr)
+names(newEnsblNames) <- NULL
+
+#----------------------------------------------------------#
+# UNCOMPRESSED mRNA data
+#----------------------------------------------------------#
+ensemble.df <- as.data.frame.matrix(ensemble.df)
+
+ensemble.df1 <- ensemble.df
+
+# drop columns in gene dataframe that are not found in miRNA or genotype dataframe #
+# B6,ILS,ISS,DBA,LXS28#
+dropNames <- list("B6","ILS","ISS","DBA","LXS28")
+
+for (ii in 1:length(dropNames)){
+  ensemble.df1 <- ensemble.df1[, -grep(dropNames[[ii]], colnames(ensemble.df1))]
+}
+
+# colnames for uncompressed mRNA #
+colStrings2 <- colnames(ensemble.df1)
+
+newEnsblNames2 <- sapply(colStrings2,FUN = subEnsemblestr)
+names(newEnsblNames2) <- NULL
+
+# add new clean names to mRNA #
+colnames(ensemble.df1) <- newEnsblNames2
+
+# write to file for use in mixed model script #
+write.csv(ensemble.df1,"Data/dataprocessed/mRNAuncompressed.csv")
+#----------------------------------------------------------#
+
+# unique names #
+uniqueNames <- unique(newEnsblNames)
+
+# select non unique columns and average over them #
+library(dplyr)
+library(purrr)
+
+avg.ls <- list()
+
+for (i in 1:length(uniqueNames)){
+  avgCol <- rowMeans(dplyr::select(as.data.frame.matrix(ensemble.df),dplyr::contains(uniqueNames[[i]])))
+  avg.ls[[i]] <- avgCol
+}
+
+# covert list to data frame #
+ensembleavg.df <- data.frame(Reduce(cbind,avg.ls))
+names(ensembleavg.df) <- uniqueNames # add colnames 
+
+
+# drop columns in gene dataframe that are not found in miRNA or genotype dataframe #
+ensembleavg.df <- subset(ensembleavg.df,select = -c(B6,ILS,ISS,DBA,LXS28))
+
+# order strains to be the same as genotype data #
+ensembleavg.df <- ensembleavg.df[,colnames(genotype.sdp)]
+
+#--------------------------------------------------------#
+# write to csv 
+
+write.csv(ensembleavg.df,"Data/dataprocessed/mRNAgeneData.csv")
+```
+
+###Prep for R qtl package
+
+```{r, mRNA qtl prep}
+# use qtl prep function #
+mRNA_Rqtl <- qtlPackagePrep(ensembleavg.df)
+
+# write to csv for qtl analysis #
+write.csv(mRNA_Rqtl,"Data/dataprocessed/mRNAqtlPackage.csv",row.names = FALSE)
+```
+
+###mRNA locations
+
+```{r, mRNA locations}
+#---------------------------------------#
+# read in Data 
+#---------------------------------------#
+mRNA.df <- as.data.frame(read.csv("Data/dataprocessed/mRNAgeneData.csv",header = T))
+rownames(mRNA.df) <- mRNA.df$X
+mRNA.df <- mRNA.df[,-1]
+
+# ensemble names for mRNA #
+mRNAensbl <- rownames(mRNA.df)
+
+# find mRNA locations #
+library(biomaRt)
+
+# use archived mart that has locations of all our mRNAs #
+ensembl14 <- useMart(host='dec2014.archive.ensembl.org', 
+                     biomart='ENSEMBL_MART_ENSEMBL', 
+                     dataset='mmusculus_gene_ensembl')
+
+mRNAlocs <- getBM(attributes = c('chromosome_name','start_position','end_position','ensembl_gene_id'),
+                  filters = 'ensembl_gene_id',values = mRNAensbl, mart = ensembl14)
+
+# save locations for use in heatmap #
+saveRDS(mRNAlocs,"Data/dataprocessed/mRNAlocations.rds")
+```

@@ -1,0 +1,201 @@
+---
+title: "hotspot analysis"
+author: "Gordon Kordas"
+date: "May 6, 2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_knit$set(root.dir = "C:/Repositories/mirna_paper")
+
+library(magrittr)
+library(dplyr)
+library(ggplot2)
+library(RColorBrewer)
+
+rm(list = ls())
+```
+
+##import functions and data
+
+```{r, echo = FALSE}
+source("R Code/functions/hotspot_analysis_functions.R")
+
+# import sdps #
+sdpLocations <- read.csv("Data/dataprocessed/medianSDPlocations.csv")
+
+# import unadjusted lods #
+out.all.miR <- readRDS("Data/dataprocessed/miRlodsUnadj.rds")
+
+# mirna locations #
+miRNAlocations <- read.csv("Data/dataprocessed/miRNAlocationsComplete.csv")
+miRNAlocations <- miRNAlocations[,-1]
+```
+
+##Perform Hotspot analysis
+
+```{r, hotspots}
+# add sdp "name" column #
+sdpLocations$sdp <- as.character(c(1:1416)) # number of sdps
+
+# obtain raw p-value cutoff for significance #
+# convert lod scores to p values #
+lodToPval <-function(x){
+  pchisq(x*(2*log(10)),df=1,lower.tail=FALSE)/2
+}
+
+miRNApvals <- lodToPval(as.matrix(out.all.miR[,-c(1,2)])) %>% as.data.frame()
+miRNApvals$sdp <- rownames(miRNApvals)
+
+# now convert to character for merging #
+sdpLocations$chromoSDP <- as.character(sdpLocations$chromoSDP)
+
+# determine number of eqtl at each location, remove sdp column 882 #
+num_mirna <- 881
+num_genos <- 1416
+indx <- miRNApvals[,-882] < 0.05/(num_mirna*num_genos) #bonferroni corrected
+sdp <- rownames(miRNApvals[,-882])[row(miRNApvals[,-882])*indx] #rn
+mirna <-  colnames(miRNApvals[,-882])[col(miRNApvals[,-882])*indx] #cn, remove sdp column 882
+pval <- miRNApvals[,-882][indx] #val
+hotspot_index <- data.frame(sdp, mirna, pval)
+hotspot_tbl <- table(hotspot_index$sdp)
+
+#====================================#
+# create  matrix to feed into hotspot
+# function
+#====================================#
+
+sdps_sig_names <- table(hotspot_index$sdp) %>% names()
+sdps_sig <- table(hotspot_index$sdp) %>% c() %>% unname()
+sdps_sig_mat <- cbind(sdps_sig_names,sdps_sig) %>% as.data.frame(stringsAsFactors = F)
+
+sdps_all_names <- as.character(1:1416)
+sdps_all <- rep(0, times = 1416)
+sdps_all_mat <- cbind(sdps_all_names,sdps_all) %>% as.data.frame(stringsAsFactors = F)
+sdps_all_mat$sdps_all <- as.numeric(rep(0,times = 1416))
+
+sdps_all_mat_join <- sdps_all_mat %>% left_join(sdps_sig_mat, by = c("sdps_all_names" = "sdps_sig_names"))
+sdps_all_mat_join$sdps_sig <- ifelse(is.na(sdps_all_mat_join$sdps_sig) == TRUE,0,sdps_all_mat_join$sdps_sig)
+
+# input vector of number of significant eQTLs at each SDP #
+hotspot_input <- as.numeric(c(sdps_all_mat_join$sdps_sig))
+
+# make sure chromosomes are correctly ordered #
+sdpLocations$chromoSDP <- factor(sdpLocations$chromoSDP,
+                                         levels = c("1","2","3","4","5","6","7","8","9","10","11","12","13","14","15","16","17","18","19","x"))
+sdpLocations <- sdpLocations[order(sdpLocations$chromoSDP,sdpLocations$medianBpSDP),]
+
+#===========================#
+# implement hotspot function
+#===========================#
+
+# use 4 sdp window, 0.05 for poisson threshold and bonferroni correction #
+brem.hotspots <- hotspots.brem.pval(window = 4, genolocs = sdpLocations,mult_thresh = 0.05,permpvals = hotspot_input,
+                                    correction = "bonferroni") #0.05
+
+# poisson mean #
+sum(brem.hotspots$num.sig)/length(brem.hotspots$num.sig)
+
+#===========================#
+# extract hotspots
+#===========================#
+
+# create data for plot of eQTLs similar to Brem paper #
+hotspots.mat <- cbind(brem.hotspots$windowstarts,brem.hotspots$num.sig,brem.hotspots$hotspot) %>% as.data.frame()
+colnames(hotspots.mat) <- c("sdpStart","numeQTL","hotspot")
+
+# get end locations of hotspots(for window = 4 SDPs) #
+sdpLocations$endwindow <- lead(sdpLocations$sdp,3)
+sdpLocations$endbp <- lead(sdpLocations$medianBpSDP,3)
+
+hotspots.mat$sdpStart <- as.character(hotspots.mat$sdpStart)
+hotspots.mat <- hotspots.mat %>% inner_join(sdpLocations,by = c("sdpStart" ="sdp")) # add locations
+
+
+#==========================#
+# prep for plot
+#==========================#
+
+# color significant hotspots #
+hotspots.mat$colors <- ifelse(hotspots.mat$hotspot == 1, "#00BFC4", NA)
+
+# order hotspot matrix by location #
+hotspots.mat$chromoSDP <- factor(hotspots.mat$chromoSDP,
+                                         levels = c("1","2","3","4","5","6","7","8","9","10","11","12","13","14","15","16","17","18","19","x"))
+hotspots.mat <- hotspots.mat[order(hotspots.mat$chromoSDP,hotspots.mat$medianBpSDP),]
+hotspots.mat$location <- c(1:nrow(hotspots.mat))
+
+# save for plot in paper figure file #
+#saveRDS(hotspots.mat,"Data/dataprocessed/hotspot_plot_mat.rds")
+```
+
+##Limit to Significant hotspots
+
+```{R,echo = FALSE}
+#-------------------------------------------------#
+# Significant hotspots 
+#-------------------------------------------------#
+hotspots.mat$chromoSDP <- factor(hotspots.mat$chromoSDP,levels = c("1", "2","3","4","5","6",
+                                                                              "7","8","9","10","11",
+                                                                              "12","13","14","15","16","17","18","19","x"))
+
+hotspots.sig <- hotspots.mat %>% filter(hotspot == 1) %>% 
+  dplyr::select(numeQTL,chromoSDP,medianBpSDP,endbp) %>% arrange(chromoSDP)
+
+# collapse chromosome 7 hotspots #
+hotspots_coll <- hotspots.sig
+hotspots_coll[1,]$endbp <- hotspots_coll[3,]$endbp
+hotspots_coll[1,]$numeQTL <- hotspots_coll[1,]$numeQTL + hotspots_coll[2,]$numeQTL + hotspots_coll[3,]$numeQTL
+
+# collapse chromosome 11 hotspots #
+hotspots_coll[5,]$endbp <- hotspots_coll[6,]$endbp
+hotspots_coll[5,]$numeQTL <- hotspots_coll[5,]$numeQTL + hotspots_coll[6,]$numeQTL
+
+hotspots_coll <- hotspots_coll[-c(2,3,6),]
+
+saveRDS(hotspots_coll,"Data/dataprocessed/tables/hotspotLocs.rds")
+```
+
+##miRNAs in hotspots for enrichment
+
+```{R,echo = FALSE}
+# which miRNAs are contained in the hotspots #
+hotspots_mirna <- hotspots.mat %>% filter(hotspot == 1) %>% 
+  dplyr::select(numeQTL,sdpStart,endwindow,chromoSDP) %>% arrange(chromoSDP)
+
+# collapse chromosome 7 hotspots #
+hotspots_mirna[1,]$endwindow <- hotspots_mirna[3,]$endwindow
+hotspots_mirna[1,]$numeQTL <- hotspots_mirna[1,]$numeQTL + hotspots_mirna[2,]$numeQTL + hotspots_mirna[3,]$numeQTL
+
+# collapse chromosome 11 hotspots #
+hotspots_mirna[5,]$endwindow <- hotspots_mirna[6,]$endwindow
+hotspots_mirna[5,]$numeQTL <- hotspots_mirna[5,]$numeQTL + hotspots_mirna[6,]$numeQTL
+hotspots_mirna <- hotspots_mirna[-c(2,3,6),]
+
+hotspot_index$mirna <- as.character(hotspot_index$mirna)
+
+mirna_hotspot_ls <- mirna_in_hotspots(hotspot_index,hotspots_mirna,sdpLocations)
+mirna_hotspot_ls <- lapply(mirna_hotspot_ls, FUN = function(X){gsub("\\.","-",X)})
+
+# write out table for each hotspot #
+for (ii in 1:length(mirna_hotspot_ls)){
+  write.table(mirna_hotspot_ls[[ii]],file = paste("Data/dataprocessed/hotspots3/hotspot_",ii,".txt",sep = ""),
+            quote = FALSE, sep = "\n",row.names = FALSE,col.names = FALSE)
+}
+```
+
+##Sensitivity analysis of bin width
+
+```{r,echo = FALSE}
+#=================================================#
+# sdp windows for sensitivity analysis
+#=================================================#
+numhotspots.sens <- list()
+bin_win <- c(3,4,5)
+for (ii in bin_win){
+  brem_tmp <- hotspots.brem.pval(window = ii, genolocs = sdpLocations,mult_thresh = 0.05,permpvals = hotspot_input,
+                                    correction = "bonferroni") #0.05
+  numhotspots.sens[[ii]] <- sum(brem_tmp$hotspot)
+}
+```

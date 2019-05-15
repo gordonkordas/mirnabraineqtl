@@ -1,0 +1,132 @@
+---
+title: "eqtl_evaluation_graphics and associated tests (Figure 1)"
+author: "Gordon Kordas"
+date: "May 2, 2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_knit$set(root.dir = "C:/Repositories/mirna_paper")
+
+rm(list = ls())
+
+library(magrittr)
+library(dplyr)
+library(ggplot2)
+library(gridExtra)
+library(MASS)
+library(Cairo)
+```
+
+##Import full mi-eQTL table
+
+```{r, table import, echo = FALSE}
+qtl_tbl <- readRDS("Data/dataprocessed/tables/mir_qtl_all_evals.rds") %>% as.data.frame()
+
+# relable categorical variables #
+qtl_tbl$cis <- ifelse(qtl_tbl$cis == 1, "cis", "trans")
+qtl_tbl$intron <- ifelse(qtl_tbl$intron == 1, "intronic", "non-intronic")
+qtl_tbl$novel <- ifelse(qtl_tbl$novel == 1, "novel", "annotated")
+qtl_tbl$cons_bin <- ifelse(qtl_tbl$meanPhastCon < 0.5,"low","high")
+qtl_tbl$LOD <- qtl_tbl$lod # for plot
+
+# limit to significant mi-eQTL #
+qtl_tbl_relaxed <- qtl_tbl %>% filter(p_fdr < 0.2)
+qtl_tbl <- qtl_tbl %>% filter(p_fdr < 0.05)
+
+# colors for paper theme #
+col_vec <- c("red","lightblue")
+```
+
+##cis versus trans
+
+```{r, echo=FALSE, eval = FALSE}
+gg_cis <- ggplot(data = qtl_tbl, aes(x = factor(cis), y = log10(LOD), fill = factor(cis))) + 
+  geom_boxplot() + 
+  labs(x = "mi-eQTL position", title = "A)") +
+  theme_bw() + 
+  ylim(0.5,1.75) + 
+  scale_fill_manual(values = col_vec) +
+  theme(legend.position = 'none',axis.title=element_text(size=11,face="bold"),plot.title = element_text(face = "bold"))
+
+wilcox.test(lod ~ cis, data = qtl_tbl) # W = 183, p-val = 0.02308
+```
+
+##intronic versus intergenic
+
+```{r, echo=FALSE, eval = FALSE}
+gg_intronic <- ggplot(data = qtl_tbl, aes(x = intron, y = log10(LOD), fill = factor(intron))) + 
+  geom_boxplot() + 
+  labs(x = "miRNA position", title = "C)") +
+  theme_bw() + 
+  ylim(0.5,1.75) +
+  scale_fill_manual(values = col_vec) +
+  theme(legend.position = 'none',axis.title=element_text(size=11,face="bold"),plot.title = element_text(face = "bold"))
+
+# associated test #
+wilcox.test(lod ~ intron, data = qtl_tbl) # W = 229, p-val = 0.06668
+```
+
+##novel versus annotated
+
+```{r, echo=FALSE, eval = FALSE}
+gg_nov <- ggplot(data = qtl_tbl, aes(x = novel, y = log10(LOD), fill = factor(novel))) + 
+  geom_boxplot() + 
+  labs(x = "miRNA annotation", title = "B)") +
+  theme_bw() + 
+  ylim(0.5,1.75) +
+  scale_fill_manual(values = col_vec) +
+  theme(legend.position = 'none',axis.title=element_text(size=11,face="bold"),plot.title = element_text(face = "bold"))
+
+# associated test #
+wilcox.test(lod ~ novel, data = qtl_tbl) # W = 59, p-val = 0.02824
+```
+
+##Heritability
+
+```{r, echo=FALSE,eval = FALSE}
+# log10(lod) vs. VPC #
+gg_herit <- ggplot(data = qtl_tbl, aes(x = vpc, y = log10(LOD))) + geom_point() + 
+  geom_smooth(se = FALSE,aes(color = TRUE)) +
+  scale_color_manual(values = 'lightblue') +
+  labs(x = "Heritability (ICC)", title = "E)") +
+  theme_bw() + 
+  ylim(0.5,1.75) +
+  theme(legend.position = 'none',axis.title=element_text(size=11,face="bold"),plot.title = element_text(face = "bold"))
+
+# calculate spearman correlation (non-linear) #
+cor.test(qtl_tbl$vpc,qtl_tbl$lod, method = "spearman") # rho = 0.82339, p-value = 3.67*10^-8
+```
+
+##Conservation
+
+```{r,echo = FALSE,eval = FALSE}
+# values are highly skewed to 0 and 1, we can dichotomize and plot boxplots #
+
+gg_cons_box <- ggplot(data = qtl_tbl[complete.cases(qtl_tbl),],
+                      aes(x = cons_bin, y = log10(LOD),
+                          fill = factor(cons_bin))) + geom_boxplot() + 
+  labs(x = "Conservation score", title = "D)") +
+  theme_bw() + 
+  ylim(0.5,1.75) +
+  scale_fill_manual(values = col_vec) +
+  theme(legend.position = 'none',axis.title=element_text(size=11,face="bold"),plot.title = element_text(face = "bold"))
+
+# associated test #
+wilcox.test(lod ~ cons_bin, data = qtl_tbl[complete.cases(qtl_tbl),]) # W = 108, p-val = 0.1687
+```
+
+##Combine all evaluation graphics for paper figure
+
+```{R,echo = FALSE,eval = FALSE}
+options(bitmapType = "cairo")
+png("Reports/images/paper_submit/eQTL_evaluations.png",
+    width = 170, 
+    height = 110,
+    res = 300, 
+    units = "mm")
+
+grid.arrange(gg_cis,gg_nov,gg_intronic,gg_cons_box,gg_herit, nrow = 2, ncol = 3)
+dev.off()
+```

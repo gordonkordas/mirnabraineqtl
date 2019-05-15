@@ -1,0 +1,699 @@
+---
+title: "miRNA Paper Figures"
+author: "Gordon Kordas"
+date: "May 9, 2019"
+output:
+  word_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_knit$set(root.dir = "C:/Repositories/mirna_paper")
+
+rm(list = ls())
+
+library(stringr)
+library(dplyr)
+library(ggplot2)
+library(grid)
+library(gridExtra)
+library(biomaRt)
+library(Rgraphviz)
+library(miRBaseConverter)
+library(RColorBrewer)
+library(Cairo)
+library(reshape2)
+library(tidyr)
+```
+
+#Manuscript Figures
+
+##import data
+
+```{r, echo=FALSE}
+source("R Code/functions/eqtl_analysis_functions.R")
+
+# rounding function #
+round_to_mb <- function(coltoround){
+  coltoround <- as.numeric(coltoround)
+  rounded <- round(coltoround/(10^6),1)
+  return(rounded)
+}
+
+# import eqtl results #
+miqtl_all <- readRDS("Data/dataprocessed/tables/mir_qtl_all_evals.rds")
+
+# limit fdr to 0.05 cutoff #
+miRqtl_paper <- miqtl_all %>% filter(p_fdr < 0.05)
+
+# mirna locations #
+miRNAlocations <- read.csv("Data/dataprocessed/miRNAlocationsComplete.csv")
+miRNAlocations <- miRNAlocations[,-1]
+
+# import sdps #
+sdpLocations <- read.csv("Data/dataprocessed/medianSDPlocations.csv")
+sdpLocations$sdp <- as.numeric(rownames(sdpLocations))
+
+# order locations #
+sdpLocations$chromoSDP <- factor(sdpLocations$chromoSDP,
+                                 levels = c("1","2","3","4","5","6","7","8","9","10","11","12","13","14","15","16","17","18","19","x"))
+
+miRNAlocations <- read.csv("Data/dataprocessed/miRNAlocationsComplete.csv")
+miRNAlocations <- miRNAlocations[,-1]
+
+miRNAlocations$miRNA <- as.character(miRNAlocations$miRNA)
+miRNAlocations$miRNA[miRNAlocations$miRNA == "mmu-miR-3102-3p.2-3p"] <- "mmu-miR-3102-3p-2-3p" # check what is going on with the naming here
+miRNAlocations$miRNA[miRNAlocations$miRNA == "mmu-miR-3102-5p.2-5p"] <- "mmu-miR-3102-5p-2-5p"
+```
+
+##Set up mi-eQTL table
+
+```{r, echo = FALSE,eval=TRUE}
+# add validated number of gene targets to table (frome target_gene_exploration) #
+num_targets <- readRDS("Data/dataprocessed/valid_mir_num_targets.rds")
+num_targets_df <- data.frame(names(num_targets),unname(num_targets),stringsAsFactors = F)
+colnames(num_targets_df) <- c("mirna","num_targets")
+miRqtl_paper <- miRqtl_paper %>% left_join(num_targets_df, by = c("miRNA" = "mirna"))
+miRqtl_paper$num_targets <- ifelse(is.na(miRqtl_paper$num_targets) == TRUE,0,miRqtl_paper$num_targets)
+
+#==============================#
+# clean up variable names and 
+# notation
+#==============================#
+
+# round to Mb #
+miRqtl_paper$qtlPos <- round_to_mb(miRqtl_paper$qtlPos)
+miRqtl_paper$bayesLow <- round_to_mb(miRqtl_paper$bayesLow)
+miRqtl_paper$bayesHi <- round_to_mb(miRqtl_paper$bayesHi)
+
+# round lod score, phastcon and heritability #
+miRqtl_paper$lod <- round(miRqtl_paper$lod,2)
+miRqtl_paper$meanPhastCon <- round(miRqtl_paper$meanPhastCon,3)
+miRqtl_paper$vpc <- round(miRqtl_paper$vpc,2)
+
+# merge bayes low and bayes high into one column #
+miRqtl_paper$bayesci <- paste('(',as.character(miRqtl_paper$bayesLow),", ",as.character(miRqtl_paper$bayesHi),")",sep = "")
+
+# round p-values #
+miRqtl_paper$e_perm_p <- round(miRqtl_paper$e_perm_p,5)
+miRqtl_paper$p_fdr <- round(miRqtl_paper$p_fdr,4)
+
+# relable categorical variables #
+miRqtl_paper$cis <- ifelse(miRqtl_paper$cis == 1, "C", "T")
+miRqtl_paper$intron <- ifelse(miRqtl_paper$intron == 1, "I", "N")
+miRqtl_paper$novel <- ifelse(miRqtl_paper$novel == 1, "N", "A")
+
+# order 
+miRqtl_paper <- miRqtl_paper[order(miRqtl_paper$p_fdr),]
+
+# select columns for paper figure #
+qtl_tbl_print <- miRqtl_paper %>% 
+dplyr::select(c("miRNA","qtlChr","qtlPos",'bayesci',"lod","e_perm_p","p_fdr",
+                "novel","cis","intron","meanPhastCon","vpc","num_targets"))
+
+# add nice column names #
+colnames(qtl_tbl_print) <- c("miRNA","eQTL chr","eQTL location (Mb)","95% C.I.","LOD","Genome-wide p-value",
+                             "FDR","annotation","cis vs. trans","miRNA location type","conservation score","ICC","No. targets")
+
+# order by eQTL location #
+qtl_tbl_print <- qtl_tbl_print[order(qtl_tbl_print$`eQTL chr`,qtl_tbl_print$`eQTL location (Mb)`),]
+
+# with mirna locations #
+qtl_tbl_print_mirlocs <- qtl_tbl_print %>% left_join(miRNAlocations, by = "miRNA")
+colnames(qtl_tbl_print_mirlocs)[14:16] <- c("miRNA chr location","miRNA start location","miRNA end location")
+qtl_tbl_print_mirlocs$`miRNA start location` <- round_to_mb(qtl_tbl_print_mirlocs$`miRNA start location`)
+qtl_tbl_print_mirlocs$`miRNA end location` <- round_to_mb(qtl_tbl_print_mirlocs$`miRNA end location`)
+
+#knitr::kable(qtl_tbl_print_mirlocs,row.names = FALSE)
+```
+
+##Table 1. Significant mi-eQTL
+
+```{r,echo = FALSE,eval=FALSE}
+# Table 1 with miR eqtl locs, ci, LOD, p-values, maybe cis vs trans
+qtl_tbl1_splt <- qtl_tbl_print_mirlocs %>% dplyr::select(miRNA,`eQTL chr`,`eQTL location (Mb)`,
+                                                         `95% C.I.`,LOD,`Genome-wide p-value`,FDR,`cis vs. trans`)
+knitr::kable(qtl_tbl1_splt,row.names = FALSE)
+```
+
+##Table 2. miRNA involved in mi-eQTL characteristics.
+
+```{r,echo=FALSE,eval=TRUE}
+# Table 2 with miR, miR locs, evaluations, and targets
+qtl_tbl2_splt <- qtl_tbl_print_mirlocs %>% dplyr::select(miRNA,`miRNA chr location`,`miRNA start location`,`miRNA end location`,
+                                                         `miRNA location type`,annotation,`conservation score`, `ICC`, `No. targets`)
+
+
+knitr::kable(qtl_tbl2_splt,row.names = FALSE)
+```
+
+##Figure 1. Characterists of mi-eQTLs
+
+See eQTL_evaluation_graphics R markdown figure for output of Figure 2.
+
+##Table 3. Significant mi-eQTL enrichment
+
+```{r, echo = FALSE,eval = FALSE}
+# miRNA to be used in Diana-MirPath-v3
+ordered_tbl <- miRqtl_paper[order(miRqtl_paper$lod, decreasing = TRUE),]
+enrichment_ls <- miRqtl_paper$miRNA[-grep("novel",miRqtl_paper$miRNA)]
+write.table(enrichment_ls,"Data/dataprocessed/tables/mirna_for_enrichment.txt",row.names = FALSE,col.names = FALSE,quote = FALSE)
+```
+
+Table created from Diana-miR-Path-V3 output and collated in Microsoft Excel.
+
+##Figure 2. mi-eQTL heatmap
+
+```{r, echo = FALSE,eval = FALSE}
+# obtain raw p-value cutoff for significance #
+# convert lod scores to p values #
+# import unadjusted lods #
+out.all.miR <- readRDS("Data/dataprocessed/miRlodsUnadj.rds")
+
+lodToPval <-function(x){
+  pchisq(x*(2*log(10)),df=1,lower.tail=FALSE)/2
+}
+
+miRNApvals <- lodToPval(as.matrix(out.all.miR[,-c(1,2)])) %>% as.data.frame()
+miRNApvals$sdp <- rownames(miRNApvals)
+
+# determine number of eqtl at each location, remove sdp column 882 #
+indx <- miRNApvals[,-882] < 0.000005
+sdp <- rownames(miRNApvals[,-882])[row(miRNApvals[,-882])*indx] #rn
+mirna <-  colnames(miRNApvals[,-882])[col(miRNApvals[,-882])*indx] #cn, remove sdp column 882
+
+# for heatmap #
+mir_heat <- data.frame(mirna,sdp,stringsAsFactors = FALSE)
+miRNAnames <- mir_heat$mirna
+miRNAnames2 <- miRNAnames %>% str_replace_all("\\.","-") %>% str_replace("novel-","novel:")
+mir_heat$mirna <- miRNAnames2
+
+
+# get sdp locations and miRNA locations in correct format #
+qtl_heat_and_locs <- merge(mir_heat,miRNAlocations,by.x = "mirna",by.y = "miRNA")
+qtl_heat_and_locs$sdp <- as.numeric(qtl_heat_and_locs$sdp)
+
+qtl_heat_and_locs <- merge(qtl_heat_and_locs,sdpLocations, by = "sdp")
+
+# select columns for plot #
+qtl_heat_and_locs <- qtl_heat_and_locs %>% dplyr::select(chromoSDP,medianBpSDP,mirna.chr,mir.start)
+colnames(qtl_heat_and_locs) <- c("qtlChr","qtlPos","mirna.chr","mir.start")
+
+# prep chromosomes for ordering #
+qtl_heat_and_locs$qtlChr <- as.character(qtl_heat_and_locs$qtlChr)
+qtl_heat_and_locs$mirna.chr <- as.character(qtl_heat_and_locs$mirna.chr)
+
+qtl_heat_and_locs$qtlChr[qtl_heat_and_locs$qtlChr == "x"] <- 20
+qtl_heat_and_locs$mirna.chr[qtl_heat_and_locs$mirna.chr == "X"] <- 20
+
+qtl_heat_and_locs$qtlChr <- as.numeric(qtl_heat_and_locs$qtlChr)
+qtl_heat_and_locs$mirna.chr <- as.numeric(qtl_heat_and_locs$mirna.chr)
+
+# put on Mb scale #
+options(digits = 15)
+
+qtl_heat_and_locs$qtlPos_mb <- qtl_heat_and_locs$qtlPos / (10^6)
+qtl_heat_and_locs$mir.start_mb <- qtl_heat_and_locs$mir.start / (10^6)
+
+# scaling factors #
+size_mb <- c(195,182,160,157,152,150,145,129,125,131,122,120,120,125,104,91,95,91,61,171)
+names(size_mb) <- as.character(1:20)
+new_size_mb <- c(195)
+for(i in 2:length(size_mb)){
+  new_size_mb <- c(new_size_mb,size_mb[i] + new_size_mb[i - 1])
+}
+names(new_size_mb) <- as.character(1:20)
+
+
+#---------------------------------#
+# FUNCTION: create continuous
+# scale/axis
+#---------------------------------#
+
+scale_for_plot <- function(qtl_heat_mat,size_vec,mirloc = TRUE){
+
+  if (mirloc == TRUE){
+    
+    if (qtl_heat_mat["mirna.chr"] == 1){
+      final_mir <- as.numeric(qtl_heat_mat["mir.start_mb"]) + 0
+      return(final_mir)
+    }
+    else{
+      final_mir <- as.numeric(qtl_heat_mat["mir.start_mb"]) + as.numeric(size_vec[as.numeric(qtl_heat_mat["mirna.chr"]) - 1])
+      return(final_mir)
+    }
+  }
+  else{
+    if (qtl_heat_mat["qtlChr"] == 1){
+      final_mir <- as.numeric(qtl_heat_mat["qtlPos_mb"]) + 0
+      return(final_mir)
+    }
+    else{
+      final_mir <- as.numeric(qtl_heat_mat["qtlPos_mb"]) + as.numeric(size_vec[as.numeric(qtl_heat_mat["qtlChr"]) - 1])
+      return(final_mir)
+    }
+  }
+}
+
+
+
+# create scale for plotting #
+
+qtl_heat_and_locs$mir_final <- apply(X = qtl_heat_and_locs, 1, FUN = scale_for_plot,size_vec = new_size_mb, mirloc = TRUE)
+qtl_heat_and_locs$qtl_final <- apply(X = qtl_heat_and_locs, 1, FUN = scale_for_plot,size_vec = new_size_mb, mirloc = FALSE)
+
+names(new_size_mb)[20] <- "X"
+
+#=========================#
+# heatmap
+#=========================#
+
+p1 <- ggplot(data = qtl_heat_and_locs, aes(x = qtl_final, y = mir_final, color = "lightblue")) + 
+geom_jitter() + scale_color_manual(values = c("blue",'gray')) + 
+  theme_bw() +
+  theme(legend.position = "none",
+        axis.text.x = element_blank(),
+        axis.text.y = element_blank()) +
+  labs(x = "\nSDP position", y = "miRNA position\n") +
+  scale_x_continuous(breaks = new_size_mb, minor_breaks = NULL) +
+  scale_y_continuous(breaks = new_size_mb, minor_breaks = NULL) +
+  theme(axis.text = element_blank(),
+        axis.title = element_text(size = 16, face = "bold")) +
+  guides(size = FALSE) +
+  coord_fixed()
+  
+
+# to improve placement of labels... #
+text_anno <- list()
+for (ii in names(new_size_mb)){
+  text_anno[[ii]] <- textGrob(ii) #,gp = gpar(fontface = "bold")
+}
+
+# put coordinates in vector once determined #
+
+add_anno <- function(my_grob,x,y){
+  annotation_custom(grob = my_grob, xmin = x, xmax = x, ymin = y, ymax = y) 
+}
+
+x_coords <- list(110,290,460,615,770,925,1075,1215,1335,1460,1590,1710,1830,1950,2070,2170,2260,2345,2425,2540)
+y_coords <- rep(list(-18),times = 20)
+
+p2 <- p1 + 
+  mapply(function(x,y,z) add_anno(x,y,z), text_anno, x_coords, y_coords) +
+  mapply(function(x,y,z) add_anno(x,y,z), text_anno, y_coords, x_coords)
+
+gt <- ggplotGrob(p2)
+gt$layout$clip[gt$layout$name=="panel"] <- "off"
+
+#----------------------#
+# save "heatmap"
+#----------------------#
+
+options(bitmapType = "cairo")
+png("Reports/images/paper_submit/miheatmap.png",
+     width = 170,
+     height = 170,
+     res = 300,
+     pointsize = 9,
+     units = "mm")
+
+grid.draw(gt)
+
+dev.off()
+
+# Chromosome Total Estimated Size (Mbp)
+# (NCBI build GRCm38)
+# http://www.informatics.jax.org/mgihome/other/mouse_facts1.shtml #
+
+```
+
+##Figure 3. Hotspot analysis
+
+```{r, echo=FALSE,eval=FALSE}
+hotspots.mat <- readRDS("Data/dataprocessed/hotspot_plot_mat.rds")
+
+# chromosome levels #
+chromolabs <- c(levels(hotspots.mat$chromoSDP))
+
+# threshold #
+threshold <- hotspots.mat %>% filter(hotspot == 1) %>% dplyr::select(numeQTL) %>% min()
+
+#-------------------------------------------------#
+# Plot hotspots
+#-------------------------------------------------#
+# chromosome colors #
+n <- 20
+set.seed(80)
+qual_col_pals <- brewer.pal.info[brewer.pal.info$category == 'qual',]
+col_vec <- unlist(mapply(brewer.pal, qual_col_pals$maxcolors, rownames(qual_col_pals)))
+col_vec <- sample(col_vec,n)
+col_vec[20] <- "#0000FF"
+col_vec[2] <- "#006400"
+col_vec[8] <- "#FF8C00"
+col_vec[19] <- "#8B008B"
+col_vec[c(5,6,12,13,16,17,18)] <- "#000000"
+# plot hotspots #
+options(bitmapType = "cairo")
+png("Reports/images/paper_submit/hotspots.png",
+     width = 170,
+     height = 120,
+     res = 300,
+     units = "mm")
+ ggplot(data = hotspots.mat, aes(x = location, y = numeQTL,fill = chromoSDP)) +
+   geom_bar(stat = "identity") +
+   #scale_x_continuous(breaks = pretty(hotspots.mat$location, n = 20)) +
+   geom_hline(yintercept = threshold, linetype = "longdash") +
+   theme_classic() +
+   labs(x = "Genome location", y = "Number of significant eQTL", fill = "chromosome") +
+   theme(legend.key.width=unit(2,"mm"), legend.key.height = unit(4,"mm"),legend.text = element_text(size = 10),
+         legend.title = element_text(size = 10)) +
+   scale_color_manual(values = col_vec, aesthetics = c("colour","fill")) +
+   theme(axis.text.x = element_blank(),
+         axis.text.y = element_text(size = 10, face = "bold",colour = "black"),
+         axis.title.x = element_text(size = 14),
+         axis.title.y = element_text(size = 14),
+         axis.ticks.x = element_blank()) +
+   scale_y_continuous(breaks = scales::pretty_breaks(n = 10))
+dev.off()
+```
+
+##Table 4. hotspots
+
+```{r, hotspot plots, echo = FALSE,eval=FALSE}
+hotspots.tbl <- readRDS("Data/dataprocessed/tables/hotspotLocs.rds")
+colnames(hotspots.tbl) <- c("number of eQTL","chromosome","start (Mb)","end (Mb)")
+
+# round to megabases #
+hotspots.tbl$`start (Mb)` <- round_to_mb(hotspots.tbl$`start (Mb)`)
+hotspots.tbl$`end (Mb)` <- round_to_mb(hotspots.tbl$`end (Mb)`)
+
+# add hotpot names #
+hotspots.tbl$name <- c("Hotspot-chr7","Hotspot-chr10","Hotspot-chr11","Hotspot-chrX")
+hotspots.tbl <- hotspots.tbl[,c("name","chromosome","start (Mb)", "end (Mb)", "number of eQTL")]
+
+#write.csv(hotspots.tbl, "Data/dataprocessed/tables/hotspot_tbl.csv")
+knitr::kable(hotspots.tbl,caption = "miRNA hotspot locations.",row.names = FALSE)
+```
+
+##Table 5. Phenotype associations 
+
+```{r,echo=FALSE,eval = TRUE}
+pheno_tbl <- readRDS("Data/dataprocessed/tables/pheno_table.rds")
+pheno_tbl$Rho <- round(pheno_tbl$Rho,3)
+pheno_tbl$FDR <- round(pheno_tbl$FDR,3)
+pheno_tbl$`bQTL p-value` <- round(pheno_tbl$`bQTL p-value`,3)
+pheno_tbl$loc <- round_to_mb(pheno_tbl$loc)
+colnames(pheno_tbl)[colnames(pheno_tbl) == "loc"] <- "eQTL location (Mb)"
+
+# reorder columns #
+pheno_tbl <- pheno_tbl[,c(1,4,2,3,6,7,5)]
+
+knitr::kable(pheno_tbl,row.names = FALSE)
+```
+
+
+#Supplementary Figures and Tables
+
+##Figure S1. mi-eQTL boxplots
+
+```{r, boxplots,echo=FALSE,eval = FALSE}
+# convert minor and major alleles to parent alleles #
+parent_df <- readRDS("Data/dataprocessed/parent_allele_match.rds")
+snp_key <- read.csv("Data/dataprocessed/correspondingSNPs.csv")
+parent_comp <- parent_df[rownames(parent_df) %in% snp_key$snp,]
+parent_sdps <- parent_comp[rownames(parent_comp) %in% snp_key$sdp,]
+parent_sdps$sdp <- 1:1416
+parent_sdps$major_allele <- ifelse(parent_sdps$minor_allele == "S","L","S")
+
+# sdps #
+genos <- readRDS("Data/dataprocessed/sdpData.rds")
+
+genos2 <- genos
+for (i in 1:dim(genos2)[1]){
+    
+    minor <- unname(genos2[i,] == 2)
+    major <- unname(genos2[i,] == 0)
+
+    genos2[i,minor] <- parent_sdps[i,"minor_allele"]   #MINOR is 2
+    genos2[i,major] <- parent_sdps[i,"major_allele"]
+}
+
+# mirna expression #
+mirna_expr <- read.csv("Data/dataprocessed/miRNA_avg.csv")
+rownames(mirna_expr) <- mirna_expr$X
+mirna_expr <- mirna_expr[,-1]
+
+
+col_vec <- c("red","lightblue")
+
+options(bitmapType = "cairo")
+png("Reports/images/paper_submit/top_eQTLboxplots.png",
+    width = 170, 
+    height = 85,
+    res = 300, 
+    units = "mm")
+
+mir_1_sdp <- miRqtl_paper %>% dplyr::filter(miRNA == "mmu-miR-466q") %>% dplyr::select(sdp) %>%
+  unname %>% as.numeric()
+
+mir_2_sdp <- miRqtl_paper %>% dplyr::filter(miRNA == "mmu-miR-1934-5p") %>% dplyr::select(sdp) %>%
+  unname %>% as.numeric()
+
+gg1 <- boxplotsForDiffExpress("mmu-miR-466q",rownames(genos2[mir_1_sdp, ,drop = F]),mirna_expr,genos2,
+                       title = "",spec_color = col_vec,size = 12)
+gg2 <- boxplotsForDiffExpress("mmu-miR-1934-5p",rownames(genos2[mir_2_sdp, ,drop = F]),mirna_expr,genos2,
+                       title = "", spec_color = col_vec,size = 12)
+grid.arrange(gg1,gg2,nrow = 1, ncol = 2)
+dev.off()
+```
+
+##Figure S2. miRNA location determination.
+
+Figure created in Microsoft PowerPoint.
+
+##Table S1. Human Orthologs.
+
+```{r,echo = FALSE,eval=FALSE}
+# can't distinguish between -5p and -3p in biomaRt #
+mirna_anno <- miRqtl_paper$miRNA[-c(grep("novel",miRqtl_paper$miRNA))]
+
+mir_acc <-  miRNA_NameToAccession(mirna_anno)
+mir_seqs <- getMiRNASequence(mir_acc$Accession)
+seqs_mirbase <- tolower(mir_seqs$miRNASequence_v22)
+
+# write to txt file for determining homologs in miRbase #
+#write.table(seqs_mirbase,"Data/dataprocessed/mirna_seqs_for_mirbase.txt",sep = "\n",
+#            row.names = FALSE,col.names = FALSE,quote = FALSE)
+
+orthos <- read.table("Data/dataprocessed/mirbase_homologs.txt")
+
+ortho_tbl <- data.frame(mirna_anno,orthos) %>% na.omit
+colnames(ortho_tbl) <- c("Mouse miRNA","Human miRNA")
+knitr::kable(ortho_tbl,row.names = FALSE)
+```
+
+As determined by Mirbase.
+
+##Table S2. Hotspot enrichment.
+
+Table created from Diana-miR-Path-V3 output and collated in Microsoft Excel. Input miRNA can be found in the hotspot_analysis.Rmd file.
+
+##Table S3. Mediation Table
+
+```{r,echo=FALSE,eval=FALSE}
+# import mediation results #
+mediation_df <- readRDS("Data/dataprocessed/tables/mediation_perc.rds")
+rev_mediation_df <- readRDS("Data/dataprocessed/tables/rev_mediation_perc.rds")
+med_sig <- mediation_df %>% filter(ind_sig == 1)
+rev_med_sig <- rev_mediation_df %>% filter(ind_sig == 1)
+
+# get gene ids instead of ensemble ids #
+ensembl <- useMart(biomart='ENSEMBL_MART_ENSEMBL', 
+                     dataset='mmusculus_gene_ensembl')
+```
+
+###reverse mediation table
+
+```{r, echo = FALSE,eval=FALSE}
+# prep mediation pathway table #
+rev_med_sig <- rev_med_sig %>% dplyr::select(-c(ind_sig,prop_sig))
+rev_med_sig[,c(4:9)] <- round(rev_med_sig[,c(4:9)],3)
+
+rev_med_sig$ind_ci <- paste('(',as.character(rev_med_sig$ind_lo),", ",as.character(rev_med_sig$ind_hi),")",sep = "")
+rev_med_sig$prop_ci <- paste('(',as.character(rev_med_sig$prop_lo),", ",as.character(rev_med_sig$prop_hi),")",sep = "")
+
+genes <- rev_med_sig$mrna
+
+G_list <- getBM(filters= "ensembl_gene_id", attributes= c("ensembl_gene_id","external_gene_name"),values=genes,mart= ensembl)
+rev_med_sig <- merge(rev_med_sig,G_list,by.x="mrna",by.y="ensembl_gene_id")
+rev_med_sig$sdp <- as.numeric(rev_med_sig$sdp)
+rev_med_sig <- merge(rev_med_sig,sdpLocations, by = "sdp")
+rev_med_sig$medianBpSDP <- round_to_mb(rev_med_sig$medianBpSDP)
+
+
+rev_med_sig_knit <- rev_med_sig %>% dplyr::select(miRNA,external_gene_name,chromoSDP,medianBpSDP,indirect,ind_ci,propmed,prop_ci)
+colnames(rev_med_sig_knit) <- c("miRNA","gene","chr","pos (Mb)","indirect effect","99.5% C.I.","prop. med.","99.5% C.I.")
+rev_med_sig_knit <- rev_med_sig_knit[order(rev_med_sig_knit$miRNA),]
+knitr::kable(rev_med_sig_knit,row.names = FALSE)
+```
+
+###mediation table 
+
+```{r, echo = FALSE,eval = FALSE}
+# prep reverse mediation pathway table #
+med_sig <- med_sig %>% dplyr::select(-c(ind_sig,prop_sig))
+med_sig[,c(4:9)] <- round(med_sig[,c(4:9)],3)
+
+med_sig$ind_ci <- paste('(',as.character(med_sig$ind_lo),", ",as.character(med_sig$ind_hi),")",sep = "")
+med_sig$prop_ci <- paste('(',as.character(med_sig$prop_lo),", ",as.character(med_sig$prop_hi),")",sep = "")
+
+genes <- med_sig$mrna
+
+G_list <- getBM(filters= "ensembl_gene_id", attributes= c("ensembl_gene_id","external_gene_name"),values=genes,mart= ensembl)
+med_sig <- merge(med_sig,G_list,by.x="mrna",by.y="ensembl_gene_id")
+med_sig$sdp <- as.numeric(med_sig$sdp)
+med_sig <- merge(med_sig,sdpLocations, by = "sdp")
+med_sig$medianBpSDP <- round_to_mb(med_sig$medianBpSDP)
+
+
+med_sig_knit <- med_sig %>% dplyr::select(miRNA,external_gene_name,chromoSDP,medianBpSDP,indirect,ind_ci,propmed,prop_ci)
+colnames(med_sig_knit) <- c("miRNA","gene","chr","pos (Mb)","indirect effect","99.5% C.I.","prop. med.","99.5% C.I.")
+med_sig_knit <- med_sig_knit[order(med_sig_knit$miRNA),]
+knitr::kable(med_sig_knit,row.names = FALSE)
+
+```
+
+##Table S4. Bayesian Network Analysis Edge Strength.
+
+```{r,echo = FALSE,eval = FALSE}
+
+# import BNA results #
+bna_ls <- readRDS("Data/dataprocessed/bna_hc.rds")
+
+# strength of arcs tables #
+strength_1934 <- bna_ls[1]$`mmu-miR-1934-5p`[[2]] %>% filter(strength > 0.5 & direction > 0.5)
+strength_5121 <- bna_ls[2]$`mmu-miR-5121`[[2]] %>% filter(strength > 0.5 & direction > 0.5)
+strength_7057 <- bna_ls[3]$`mmu-miR-7057-5p`[[2]] %>% filter(strength > 0.5 & direction > 0.5)
+strength_novel_chr10 <- bna_ls[4]$`novel:chr10_26214`[[2]] %>% filter(strength > 0.5 & direction > 0.5)
+strength_ls <- list(strength_1934,strength_5121,strength_7057,strength_novel_chr10)
+names(strength_ls) <- c("1934","5121","7057","novel_chr10")
+
+saveRDS(strength_ls,"Data/dataprocessed/tables/arc_strength_list.rds")
+
+# add non-generic names to strength list #
+bna_edges_df <- melt(strength_ls) %>% tidyr::spread(variable, value) %>% arrange(L1)
+
+# miR-1934 #
+
+
+
+bna_edges_df[bna_edges_df$L1 == "1934",]$from <- c("Alox8","Alox8","Chr11:Mb 69.0","Chr11:Mb 69.0")
+bna_edges_df[bna_edges_df$L1 == "1934",]$to <- c("Gm11826","miR-1934-5p","Alox8","Gm11826")
+
+# miR-5121 #
+
+# gene1  ENSMUSG00000007783              Cpt1c
+# gene3  ENSMUSG00000063511            Snrnp70
+# gene2  ENSMUSG00000056592             Zfp658
+# gene4  ENSMUSG00000097178      2310002F09Rik
+bna_edges_df[bna_edges_df$L1 == "5121",]$from <- c("Snrnp70","Snrnp70","2310002F09Rik","MiR-5121","miR-5121","Chr7:Mb 43.5")
+bna_edges_df[bna_edges_df$L1 == "5121",]$to <- c("Cpt1c","miR-5121","Cpt1c","Zfp658","2310002F09Rik","Snrnp70")
+
+# miR-7057 #
+
+# gene2 ENSMUSG00000058145           Adamts17
+# gene1 ENSMUSG00000030515             Tarsl2
+# gene3 ENSMUSG00000087441            Gm13853
+bna_edges_df[bna_edges_df$L1 == "7057",]$from <- c("Tarsl2","miR-7057-5p","miR-7057-5p","Chr7:Mb 64.6","Chr7:Mb 64.6")
+bna_edges_df[bna_edges_df$L1 == "7057",]$to<- c("Gm13853","Tarsl2","Adamts17","Adamts17","miR-7057-5p")
+
+# novel_chr10 #
+
+# gene1  ENSMUSG00000019763              Rmnd1
+# gene2  ENSMUSG00000068487           Ndufa11b
+
+bna_edges_df[bna_edges_df$L1 == "novel_chr10",]$from <- c("novel:chr10_26214","novel:chr10_26214","Chr10:Mb 4.8")
+bna_edges_df[bna_edges_df$L1 == "novel_chr10",]$to <- c("Rmnd1","Ndufa11b","novel:chr10_26214")
+
+# new column names #
+colnames(bna_edges_df) <- c("From","To","miRNA","Strength","Direction")
+bna_edges_df <- bna_edges_df[,c(3,1,2,4,5)]
+bna_edges_df$Direction <- round(bna_edges_df$Direction,3)
+
+knitr::kable(bna_edges_df,row.names = FALSE)
+```
+
+
+##Phenogen Table (all mi-eQTLs)
+
+```{r,echo=FALSE,eval = FALSE}
+miRqtl_all <- miqtl_all
+# add validated number of gene targets to table (frome target_gene_exploration) #
+num_targets <- readRDS("Data/dataprocessed/valid_mir_num_targets_all.rds")
+num_targets_df <- data.frame(names(num_targets),unname(num_targets),stringsAsFactors = F)
+colnames(num_targets_df) <- c("mirna","num_targets")
+miRqtl_all <- miRqtl_all %>% left_join(num_targets_df, by = c("miRNA" = "mirna"))
+miRqtl_all$num_targets <- ifelse(is.na(miRqtl_all$num_targets) == TRUE,0,miRqtl_all$num_targets)
+
+#==============================#
+# clean up variable names and 
+# notation
+#==============================#
+
+#----------------------------------------#
+# add full conservation info 
+#----------------------------------------#
+miRqtl_all <- merge(miRqtl_all,miRNAlocations,by = "miRNA")
+conservationOut <- read.csv("Data/dataprocessed/conserveOutAll.csv",header = TRUE,stringsAsFactors = FALSE)
+
+# keep only locations and mean phastcon score #
+conservationOut <- conservationOut[,c("chrom","start","end","Mean")]
+conservationOut$chrom <- sub("chr", "", conservationOut$chrom)
+miRqtl_all <- left_join(miRqtl_all,conservationOut, by = c("mirna.chr.x" = "chrom","mir.stop.x" = "end"))
+#----------------------------------------#
+
+# round lod score, phastcon and heritability #
+miRqtl_all$lod <- formatC(round(miRqtl_all$lod,2), format = 'f', digits = 2) %>% as.character()
+miRqtl_all$Mean <- formatC(round(miRqtl_all$Mean,3), format = 'f',digits = 3) %>% as.character()
+miRqtl_all$vpc <- formatC(round(miRqtl_all$vpc,3),format = 'f', digits = 3) %>% as.character()
+
+# merge bayes low and bayes high into one column #
+miRqtl_all$bayesci <- paste('(',as.character(miRqtl_all$bayesLow),", ",as.character(miRqtl_all$bayesHi),")",sep = "")
+
+# round p-values #
+miRqtl_all$e_perm_p <- formatC(round(miRqtl_all$e_perm_p,5), format = 'f', digits = 5) %>% as.character()
+miRqtl_all$p_fdr <- formatC(round(miRqtl_all$p_fdr,4), format = 'f', digits = 4) %>% as.character()
+
+# relable categorical variables #
+miRqtl_all$cis <- ifelse(miRqtl_all$cis == 1, "C", "T")
+miRqtl_all$intron <- ifelse(miRqtl_all$intron == 1, "I", "N")
+miRqtl_all$novel <- ifelse(miRqtl_all$novel == 1, "N", "A")
+
+# order 
+miRqtl_all <- miRqtl_all[order(miRqtl_all$p_fdr),]
+
+# select columns for paper figure #
+qtl_tbl_print_all <- miRqtl_all %>% 
+dplyr::select(c("miRNA","qtlChr","qtlPos",'bayesci',"lod","e_perm_p","p_fdr",
+                "novel","cis","intron","Mean","vpc","num_targets"))
+
+# add nice column names #
+colnames(qtl_tbl_print_all) <- c("miRNA","eQTL chr","eQTL location","eQTL 95% C.I.","eQTL LOD","eQTL Genome-wide p-value",
+                             "FDR","miRNA annotation","cis/trans","miRNA type","conservation","ICC","No. targets")
+
+# with mirna locations #
+qtl_tbl_print_all_mir_locs <- qtl_tbl_print_all %>% left_join(miRNAlocations, by = "miRNA")
+colnames(qtl_tbl_print_all_mir_locs)[14:16] <- c("miRNA chr location","miRNA start location","miRNA end location")
+
+
+# reorder columns #
+qtl_tbl_print_all_mir_locs <- qtl_tbl_print_all_mir_locs[,c(1,14:16,2:13)]
+
+# add comments column #
+qtl_tbl_print_all_mir_locs$comments <- c("Abbreviations: Chr Chromosome, pos position, C.I. Bayes' credible interval, LOD logarithm of the odds score, FDR False Discovery Rate, annotation annotated or novel (indicated by A or N), where novel miRNAs were identified by the mirDeep2 software, cis/trans cis (within 5 Mb on either side of the associated SDP) or trans (indicated by C or T), miRNA type intronic or non-intronic (indicated by I or N) as determined by the UCSC Genome Table Browser, conservation PhastCons Conservation Score (closer to 1 indicates more highly conserved) missing values indicate that a score was not returned by the Table Browser, ICC Intraclass correlation (a measure of miRNA heritability), No. targets Number of validated gene targets identified by the MultiMiR R package.",
+                                         rep("",times = nrow(qtl_tbl_print_all_mir_locs)-1))
+
+write.csv(qtl_tbl_print_all_mir_locs,"Data/dataprocessed/tables/full_mieqtl_table.csv",row.names = FALSE, quote = TRUE)
+```
+

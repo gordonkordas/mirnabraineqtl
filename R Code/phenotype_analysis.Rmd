@@ -1,0 +1,232 @@
+---
+title: "phenotype analysis"
+author: "Gordon Kordas"
+date: "December 31, 2018"
+output: html_document
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_knit$set(root.dir = "C:/Repositories/mirna_paper")
+
+rm(list = ls())
+
+library(magrittr)
+library(dplyr)
+library(DESeq2)
+library(multiMiR)
+library(reshape2)
+library(tidyr)
+```
+
+```{r, source_func, echo=FALSE}
+source("R Code/functions/phenotype_analysis_functions.R")
+```
+
+##Import LXS phenotypes
+
+```{r, import, echo = FALSE,eval = FALSE}
+aft_pheno <- read.table("Data/phenotypes/bennett_st_aft.txt")
+lorr_pheno <- read.table("Data/phenotypes/LORR.geneNEtwork.reformatted.txt")
+lda_pheno <- read.table("Data/phenotypes/LXS_LDA.txt",fill = TRUE, header = TRUE)  #line 22 did not have 17 elements
+did_pheno <- read.table("Data/phenotypes/vanderlinden_did.txt")
+
+# using Pratyay's data object #
+load("Data/phenotypes/code/alldata.RObj") # to double check which data to use for analysis
+```
+
+```{r,echo = FALSE}
+# import Radcliffe/Bennett Data #
+bennett_pheno <- read.csv("Data/phenotypes/bennett_paper_phenos.csv",na.strings = "x")
+rownames(bennett_pheno) <- paste("LXS",bennett_pheno$LXS.Strain..,sep = "")
+
+# keep only mean values (only care about saline treated?)#
+bennett_pheno <- bennett_pheno %>% dplyr::select(Mn.ST_sal,Mn.ST_Et,Mn.AFT_sal,Mn.AFT_Et,RT..ST_Et.minus.ST_sal.)
+```
+
+##Import miRNA data
+
+```{r, echo=FALSE}
+mirna_expr <- read.csv("Data/dataprocessed/miRNA_avg.csv")
+rownames(mirna_expr) <- mirna_expr$X
+mirna_expr <- mirna_expr[,-1]
+
+# limit to significant eQTL #
+miqtl_all <- readRDS("Data/dataprocessed/tables/mirqtl_all.rds")
+miRqtl_paper <- miqtl_all %>% filter(p_fdr < 0.05)
+
+mirna_expr <- mirna_expr[rownames(mirna_expr) %in% miRqtl_paper$miRNA,]
+```
+
+##From Radcliffe/Bennett Paper
+
+###ST Saline
+
+```{r,echo = FALSE}
+#===========================================#
+# ST Saline                                      
+#===========================================#
+
+# check common strains #
+st_sal <- bennett_pheno %>% dplyr::select(Mn.ST_sal) %>% na.omit()
+
+# calculate correlations #
+st_sal_df<- phenotype_corrs(st_sal,mirna_expr)
+
+# any below FDR 0.1? #
+st_sal_df %>% filter(corr_fdr < 0.1)
+st_sal_print <- st_sal_df %>% filter(spear_corr_fdr < 0.2)
+st_sal_print$phenotype <- rep("ST Saline",nrow(st_sal_print))
+```
+
+###ST Ethanol
+
+```{r,echo = FALSE}
+#===========================================#
+# ST ethanol                                     
+#===========================================#
+
+# check common strains #
+st_et <- bennett_pheno %>% dplyr::select(Mn.ST_Et) %>% na.omit()
+
+# calculate correlations #
+st_et_df <- phenotype_corrs(st_et,mirna_expr)
+
+# any below FDR 0.1? #
+st_et_df %>% filter(corr_fdr < 0.1) #none
+st_et_df %>% filter(spear_corr_fdr < 0.2) #none
+```
+
+###AFT Saline
+
+```{r,echo = FALSE}
+#===========================================#
+# AFT saline                                   
+#===========================================#
+
+# check common strains #
+aft_sal <- bennett_pheno %>% dplyr::select(Mn.AFT_sal) %>% na.omit()
+
+# calculate correlations #
+aft_sal_df <- phenotype_corrs(aft_sal,mirna_expr)
+
+# any below FDR 0.1? #
+aft_sal_df %>% filter(corr_fdr < 0.1) #none
+aft_sal_df %>% filter(spear_corr_fdr < 0.2) #none
+```
+
+###AFT Ethanol
+
+```{r,echo = FALSE}
+#===========================================#
+# AFT ethanol                                  
+#===========================================#
+
+# check common strains #
+aft_et <- bennett_pheno %>% dplyr::select(Mn.AFT_Et) %>% na.omit()
+
+# calculate correlations #
+aft_et_df <- phenotype_corrs(aft_et,mirna_expr)
+
+# any below FDR 0.1? #
+aft_et_df %>% filter(corr_fdr < 0.1) #none
+aft_et_print <- aft_et_df %>% filter(spear_corr_fdr < 0.2) # two spearman below FDR of 0.2
+aft_et_print$phenotype <- rep("AFT Ethanol",nrow(aft_et_print))
+```
+
+##RT
+
+```{r,echo = FALSE}
+#===========================================#
+# RT ethanol                                  
+#===========================================#
+
+# check common strains #
+rt <- bennett_pheno %>% dplyr::select(RT..ST_Et.minus.ST_sal.) %>% na.omit()
+
+# calculate correlations #
+rt_df <- phenotype_corrs(rt,mirna_expr)
+
+# any below FDR 0.1? #
+rt_df %>% filter(corr_fdr < 0.1) #none
+rt_df %>% filter(spear_corr_fdr < 0.2) # none
+```
+
+```{r,echo = FALSE}
+# combine into a table for paper #
+pheno_tbl <- rbind(st_sal_print,aft_et_print)
+saveRDS(pheno_tbl,"Data/dataprocessed/tables/pheno_table.rds")
+```
+
+##miRNA locations associated with phenotypes 
+
+```{r,echo = FALSE}
+miRNAlocations <- read.csv("Data/dataprocessed/miRNAlocationsComplete.csv")
+miRNAlocations <- miRNAlocations[,-1]
+
+miRNAlocations$miRNA <- as.character(miRNAlocations$miRNA)
+miRNAlocations$miRNA[miRNAlocations$miRNA == "mmu-miR-3102-3p.2-3p"] <- "mmu-miR-3102-3p-2-3p" # check what is going on with the naming here
+miRNAlocations$miRNA[miRNAlocations$miRNA == "mmu-miR-3102-5p.2-5p"] <- "mmu-miR-3102-5p-2-5p"
+
+# check mmu-miR-32-3p,mmu-miR-208b-3p, novel:chr4_11381, novel:chr4_10452
+#
+miRNAlocations %>% filter(miRNA=="mmu-miR-32-3p" | miRNA=="mmu-miR-208b-3p" | miRNA=="novel:chr4_11381" |miRNA=="novel:chr4_10452")
+```
+
+##gene targets of associated miRNA
+
+```{r,echo=FALSE}
+mirna_vec <- c('mmu-miR-32-3p','mmu-miR-208b-3p')
+# retrieve all validated target genes of a given miRNA #
+targets.all <- get_multimir(org = "mmu",mirna = mirna_vec)
+
+mir_and_targets <- targets.all@data %>% dplyr::select(mature_mirna_id,target_symbol,target_ensembl) %>% distinct()
+
+# extract genes targeted by miRNA and number of genes #
+numGeneTable.validated <- addmargins(table(targets.all@data[,c(3,6)]))
+
+# unisque genes targeted #
+geneTargets.val <- unique(targets.all@data$target_ensembl)
+
+```
+
+##Run b-eQTL on SDPs for significant mi-eQTL
+
+```{r,echo = FALSE}
+# genotypes #
+genos <- readRDS("Data/dataprocessed/sdpData.rds")
+rownames(genos) <- as.character(c(1:1416)) # to match overlap table
+
+# only keep sdps involved in significant mi-eQTL #
+sdps_sig <- genos[rownames(genos) %in% miRqtl_paper$sdp,]
+
+# create list of all phenotypes #
+pheno_ls <- list(aft_et,aft_sal,st_et,st_sal,rt)
+
+# run qtl analysis #
+qtl_ls <- lapply(pheno_ls, FUN = phenotype_qtl,sdps = sdps_sig)
+
+# any significant associations? #
+qtl_sig <- lapply(qtl_ls, FUN = pheno_sig)
+names(qtl_sig) <- c("aft_et","aft_sal","st_et","st_sal","rt")
+
+qtl_sig_df <- melt(qtl_sig) %>% tidyr::spread(variable, value)
+colnames(qtl_sig_df)[2] <- "pheno"
+qtl_sig_df <- qtl_sig_df[order(qtl_sig_df$pheno),]
+
+# add sdp locations #
+
+sdpLocations <- read.csv("Data/dataprocessed/medianSDPlocations.csv")
+sdpLocations$sdp <- as.character(rownames(sdpLocations))
+sdpLocations$chromoSDP <- factor(sdpLocations$chromoSDP,
+                                 levels = c("1","2","3","4","5","6","7","8","9","10","11","12","13","14","15","16","17","18","19","x"))
+
+qtl_sig_df <- qtl_sig_df %>% left_join(sdpLocations, by = "sdp")
+
+# which mi-eQTL overlap? #
+miRNA_overlap <- miRqtl_paper %>% filter(sdp %in% qtl_sig_df$sdp)
+
+bqtl_tbl <- qtl_sig_df %>% left_join(miRNA_overlap, by = 'sdp') %>% dplyr::select(sdp,pheno,tstat,pval,chromoSDP,medianBpSDP,miRNA)
+colnames(bqtl_tbl) <- c("sdp","phenotype","T_stat","pvalue","sdp chr","sdp loc","mieQTL miRNA")
+```

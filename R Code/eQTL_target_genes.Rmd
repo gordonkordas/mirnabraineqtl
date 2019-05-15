@@ -1,0 +1,66 @@
+---
+title: "Target Genes"
+author: Gordon Kordas
+date: May 15, 2019
+output: html_document
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_knit$set(root.dir = "C:/Repositories/mirna_paper")
+
+rm(list = ls())
+
+# packages #
+library(multiMiR)
+library(dplyr)
+library(purrr)
+library(HeritSeq)
+```
+
+```{r, import miRNAs}
+# import eqtl results #
+miqtl_all <- readRDS("Data/dataprocessed/tables/mir_qtl_all_evals.rds")
+
+# limit fdr to 0.05 cutoff #
+miRqtl_paper <- miqtl_all %>% filter(p_fdr < 0.05)
+
+# non-novel mirna #
+mirna.vec <- miRqtl_paper$miRNA[-grep("novel",miRqtl_paper$miRNA)]
+mirna_all_vec <- miqtl_all$miRNA[-grep("novel",miqtl_all$miRNA)]
+```
+
+```{r, import mRNA}
+mRNA.qtl <- readRDS("Data/dataprocessed/mrna_sig_eqtl.rds")
+```
+
+```{r, obtain miRNA gene targets}
+#==============================================#
+# validated targets 
+#==============================================#
+
+# retrieve all validated target genes of a given miRNA #
+targets.all <- get_multimir(org = "mmu",mirna = mirna.vec)
+targets_full <- get_multimir(org = "mmu",mirna = mirna_all_vec)
+
+mir_and_targets <- targets.all@data %>% dplyr::select(mature_mirna_id,target_symbol,target_ensembl) %>% distinct()
+saveRDS(mir_and_targets,"Data/dataprocessed/valid_mir_targets.rds")
+
+# extract genes targeted by miRNA and number of genes #
+numGeneTable.validated <- addmargins(table(targets.all@data[,c(3,6)]))
+numGeneTableAll <- addmargins(table(targets_full@data[,c(3,6)]))
+
+# number of genes per validated miRNA #
+numGeneValidated <- numGeneTable.validated[-nrow(numGeneTable.validated),ncol(numGeneTable.validated)]
+saveRDS(numGeneValidated,"Data/dataprocessed/valid_mir_num_targets.rds")
+
+numGeneValidatedAll <- numGeneTableAll[-nrow(numGeneTableAll),ncol(numGeneTableAll)]
+saveRDS(numGeneValidatedAll,"Data/dataprocessed/valid_mir_num_targets_all.rds")
+
+# unique genes targeted #
+geneTargets.val <- unique(targets.all@data$target_ensembl)
+
+# how many of the validated targets are in also mRNA eQTLs?
+mRNA.qtl$valMiRtarget <- ifelse(mRNA.qtl$mrna %in% geneTargets.val == TRUE, 1, 0)
+```

@@ -1,0 +1,296 @@
+---
+title: "Bayesian Network Analysis"
+author: "Gordon Kordas"
+date: "May 9, 2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_knit$set(root.dir = "C:/Repositories/mirna_paper")
+
+rm(list = ls())
+
+library(magrittr)
+library(dplyr)
+library(purrr)
+library(multiMiR)
+library(mediation)
+```
+
+```{r, source_func, echo=FALSE}
+source("R Code/functions/bayesian_network_analysis_functions.R")
+```
+
+##import mi-eQTL results
+
+```{r, import miRNAs}
+# import qtls table #
+miqtl_all <- readRDS("Data/dataprocessed/tables/mirqtl_all.rds")
+miRqtl_sig <- miqtl_all %>% filter(p_fdr < 0.05)
+
+# unique miRNAs with significant eQTL #
+mirna <- miRqtl_sig$miRNA
+```
+
+##import g-eQTL results
+
+```{r, import mRNA}
+mRNA_qtl_tbl <- readRDS("Data/dataprocessed/mrna_sig_eqtl.rds")
+```
+
+##determine locus overlap 
+
+```{r, obtain miRNA gene targets}
+overlap <- miRqtl_sig %>% inner_join(mRNA_qtl_tbl, by = "sdp") %>% dplyr::select(miRNA,sdp,mrna)
+
+# save for remote script #
+#saveRDS(overlap,"Data/dataprocessed/overlap_med.rds")
+```
+
+##import genotypes, mirna expression and mrna expression
+
+```{r, echo=FALSE}
+# genotypes #
+genos <- readRDS("Data/dataprocessed/sdpData.rds")
+rownames(genos) <- as.character(c(1:1416)) # to match overlap table
+
+# mirna expression #
+mirna_expr <- read.csv("Data/dataprocessed/miRNA_avg.csv")
+rownames(mirna_expr) <- mirna_expr$X
+mirna_expr <- mirna_expr[,-1]
+
+# mrna expression #
+mrna_expr <- read.csv("Data/dataprocessed/mRNAgeneData.csv")
+rownames(mrna_expr) <- mrna_expr$X
+mrna_expr <- mrna_expr[,-1]
+```
+
+##Baron and Kenny method with boot package
+
+```{r,echo=FALSE,eval=FALSE}
+#==============================#
+# mediation filter
+#==============================#
+start_time <- Sys.time()
+med_test <- mediation_boot(overlap = overlap,
+                                 mrna_expr_data = mrna_expr,
+                                 mirna_expr_data = mirna_expr,
+                                 geno_data = genos,
+                                 num_boots = 1000,
+                                 boottype = "perc",
+                                 reverse = FALSE)
+
+rev_med_test <- mediation_boot(overlap = overlap,
+                                 mrna_expr_data = mrna_expr,
+                                 mirna_expr_data = mirna_expr,
+                                 geno_data = genos,
+                                 num_boots = 1000,
+                                 boottype = "perc",
+                                 reverse = TRUE)
+Sys.time() - start_time
+
+mediation_df <- cbind(overlap,med_test)
+colnames(mediation_df) <- c("miRNA","sdp","mrna","indirect","ind_lo","ind_hi","ind_sig","propmed","prop_lo","prop_hi","prop_sig")
+
+rev_mediation_df <- cbind(overlap,rev_med_test)
+colnames(rev_mediation_df) <- c("miRNA","sdp","mrna","indirect","ind_lo","ind_hi","ind_sig","propmed","prop_lo","prop_hi","prop_sig")
+
+
+# save new results # 
+saveRDS(mediation_df,"Data/dataprocessed/tables/mediation_perc.rds")
+saveRDS(rev_mediation_df,"Data/dataprocessed/tables/rev_mediation_perc.rds")
+
+#candidates <- mediation_df %>% filter(ind_sig == 1) %>% dplyr::select(miRNA,sdp,mrna)
+```
+
+##Look at multi-gene networks (BNA)
+
+```{r,echo = FALSE}
+#############################################
+# Use bayesian network to determine best 
+# path direction
+#############################################
+rev_mediation_df <- readRDS("Data/dataprocessed/tables/rev_mediation_perc.rds")
+rev_sig <- rev_mediation_df %>% filter(ind_sig == 1) %>% dplyr::select(miRNA,sdp,mrna)
+
+# reverse mediation triplets have one more triplet, we will use these for BNA #
+
+library(bnlearn)
+
+#=====================================#
+# mmu-miR-5121
+#=====================================#
+
+# hillclimb search #
+blacklist <- matrix(data = c("mir","snp","gene1","snp","gene2","snp","gene3","snp","gene4","snp"),
+                    ncol = 2, byrow = TRUE, dimnames = list(NULL, c("from","to")))
+
+bna_mir5121_hc <- bna_exhaustive(gene_ls = list('ENSMUSG00000007783','ENSMUSG00000056592',
+                                                      'ENSMUSG00000063511','ENSMUSG00000097178'),
+                                       gene_names = c("gene1","gene2","gene3","gene4"),
+                                       mirna = "mmu-miR-5121",
+                                       sdp = "1183",
+                                       mirna_expr_data = mirna_expr,
+                                       mrna_expr_data = mrna_expr,
+                                       geno_data = genos,
+                                       num_ind_tests = 5,
+                                       sdp_names = c("snp1","snp2","snp3","snp4","snp5"),
+                                  blacklist = blacklist,
+                                 num_boots = 500
+                                       )
+
+
+#=====================================#
+# mmu-miR-1934-5p
+#=====================================#
+
+# hillclimb search #
+blacklist <- matrix(data = c("mir","snp","gene1","snp","gene2","snp"),ncol = 2, byrow = TRUE, dimnames = list(NULL, c("from","to")))
+
+bna_mir1934_hc <- bna_exhaustive(gene_ls = list('ENSMUSG00000020891','ENSMUSG00000083328'),
+                                       gene_names = c("gene1","gene2"),
+                                       mirna = "mmu-miR-1934-5p",
+                                       sdp = "211",
+                                       mirna_expr_data = mirna_expr,
+                                       mrna_expr_data = mrna_expr,
+                                       geno_data = genos,
+                                       num_ind_tests = 3,
+                                       sdp_names = c("snp1","snp2","snp3"),
+                                  blacklist = blacklist,
+                                 num_boots = 500
+                                       )
+
+#=====================================#
+# novel:chr10_26214
+#=====================================#
+
+# hillclimb search #
+blacklist <- matrix(data = c("mir","snp","gene1","snp","gene2","snp"),ncol = 2, byrow = TRUE, dimnames = list(NULL, c("from","to")))
+
+bna_novelchr10_26214_hc <- bna_exhaustive(gene_ls = list('ENSMUSG00000019763','ENSMUSG00000068487'),
+                                       gene_names = c("gene1","gene2"),
+                                       mirna = "novel:chr10_26214",
+                                       sdp = "104",
+                                       mirna_expr_data = mirna_expr,
+                                       mrna_expr_data = mrna_expr,
+                                       geno_data = genos,
+                                       num_ind_tests = 3,
+                                       sdp_names = c("snp1","snp2","snp3"),
+                                  blacklist = blacklist,
+                                  num_boots = 500
+                                  )
+
+#=====================================#
+# mmu-miR-7057-5p
+#=====================================#
+
+# hillclimb search #
+blacklist <- matrix(data = c("mir","snp","gene1","snp","gene2","snp","gene3","snp"),ncol = 2, byrow = TRUE, dimnames = list(NULL, c("from","to")))
+
+bna_mir7057_hc <- bna_exhaustive(gene_ls = list('ENSMUSG00000030515','ENSMUSG00000058145','ENSMUSG00000087441'),
+                                       gene_names = c("gene1","gene2","gene3"),
+                                       mirna = "mmu-miR-7057-5p",
+                                       sdp = "1192",
+                                       mirna_expr_data = mirna_expr,
+                                       mrna_expr_data = mrna_expr,
+                                       geno_data = genos,
+                                       num_ind_tests = 4,
+                                       sdp_names = c("snp1","snp2","snp3","snp4"),
+                                  blacklist = blacklist,
+                                 num_boots = 500
+                                  )
+
+#---------------------------------#
+# save signficant networks
+#---------------------------------#
+
+bna_ls <- list(bna_mir1934_hc,bna_mir5121_hc,bna_mir7057_hc,bna_novelchr10_26214_hc)
+names(bna_ls) <- c('mmu-miR-1934-5p','mmu-miR-5121','mmu-miR-7057-5p','novel:chr10_26214')
+
+saveRDS(bna_ls,"Data/dataprocessed/bna_hc.rds")
+```
+
+##direction of correlation
+
+```{r,echo = FALSE}
+#=================#
+# miR-5121
+#=================#
+
+# gene1  ENSMUSG00000007783              Cpt1c
+# gene3  ENSMUSG00000063511            Snrnp70
+# gene2  ENSMUSG00000056592             Zfp658
+# gene4  ENSMUSG00000097178      2310002F09Rik
+
+zfp_mir5121_edge <- cor.test(as.numeric(unname(mrna_expr["ENSMUSG00000056592",])),
+                          as.numeric(unname(mirna_expr["mmu-miR-5121",])))$estimate # positive
+
+zfp_cpt_edge <- cor.test(as.numeric(unname(mrna_expr["ENSMUSG00000056592",])),
+                          as.numeric(unname(mrna_expr["ENSMUSG00000007783",])))$estimate # positive
+
+mir5121_snrnp_edge <- cor.test(as.numeric(unname(mirna_expr["mmu-miR-5121",])),
+                          as.numeric(unname(mrna_expr["ENSMUSG00000063511",])))$estimate # positive
+
+mir5121_2310_edge <- cor.test(as.numeric(unname(mirna_expr["mmu-miR-5121",])),
+                          as.numeric(unname(mrna_expr["ENSMUSG00000097178",])))$estimate # negative
+
+
+cpt_2310_edge <- cor.test(as.numeric(unname(mrna_expr["ENSMUSG00000007783",])),
+                          as.numeric(unname(mrna_expr["ENSMUSG00000097178",])))$estimate # negative
+
+#================#
+# miR-7057 
+#================#
+
+# gene2 ENSMUSG00000058145           Adamts17
+# gene1 ENSMUSG00000030515             Tarsl2
+# gene3 ENSMUSG00000087441            Gm13853
+
+sdp_mir7057_edge <- cor.test(as.numeric(unname(genos["1192",])),
+                          as.numeric(unname(mirna_expr["mmu-miR-7057-5p",])))$estimate # positive
+
+sdp_adamst17_edge <- cor.test(as.numeric(unname(genos["1192",])),
+                          as.numeric(unname(mrna_expr["ENSMUSG00000058145",])))$estimate # positive
+
+adamst17_mir7057_edge <- cor.test(as.numeric(unname(mrna_expr["ENSMUSG00000058145",])),
+                          as.numeric(unname(mirna_expr["mmu-miR-7057-5p",])))$estimate # positive
+
+tarsl2_mir7057_edge <- cor.test(as.numeric(unname(mrna_expr["ENSMUSG00000030515",])),
+                          as.numeric(unname(mirna_expr["mmu-miR-7057-5p",])))$estimate # negative
+
+tarsl2_gm13853_edge <- cor.test(as.numeric(unname(mrna_expr["ENSMUSG00000030515",])),
+                          as.numeric(unname(mrna_expr["ENSMUSG00000087441",])))$estimate # negative
+
+#===============#
+# novel_chr10
+#===============#
+
+# gene1  ENSMUSG00000019763              Rmnd1
+# gene2  ENSMUSG00000068487           Ndufa11b
+
+ndufa11b_novelchr10_edge <- cor.test(as.numeric(unname(mrna_expr["ENSMUSG00000068487",])),
+                          as.numeric(unname(mirna_expr["novel:chr10_26214",])))$estimate # positive
+
+rmnd1_novelchr10_edge <- cor.test(as.numeric(unname(mrna_expr["ENSMUSG00000019763",])),
+                          as.numeric(unname(mirna_expr["novel:chr10_26214",])))$estimate # negative
+
+#===============#
+# miR-1934
+#===============#
+
+# gene2  ENSMUSG00000083328            Gm11826
+# gene1  ENSMUSG00000020891              Alox8
+
+sdp211_gm11826_edge <- cor.test(as.numeric(unname(genos["211",])),
+                          as.numeric(unname(mrna_expr["ENSMUSG00000083328",])))$estimate # positive
+
+sdp211_alox8_edge <- cor.test(as.numeric(unname(genos["211",])),
+                          as.numeric(unname(mrna_expr["ENSMUSG00000020891",])))$estimate # negative
+
+gm11826_alox8_edge <- cor.test(as.numeric(unname(mrna_expr["ENSMUSG00000083328",])),
+                          as.numeric(unname(mrna_expr["ENSMUSG00000020891",])))$estimate # negative
+
+mir1934_alox8_edge <- cor.test(as.numeric(unname(mirna_expr["mmu-miR-1934-5p",])),
+                          as.numeric(unname(mrna_expr["ENSMUSG00000020891",])))$estimate # positive
+```

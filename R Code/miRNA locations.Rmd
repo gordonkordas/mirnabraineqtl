@@ -1,0 +1,225 @@
+---
+title: "miRNA locations"
+author: "Gordon Kordas"
+date: "September 26, 2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_knit$set(root.dir = "C:/Repositories/mirna_paper")
+
+rm(list = ls())
+```
+
+```{r, source}
+source("R Code/functions/eqtl_cleaning_functions.R")
+```
+
+###Import SDP locations
+
+```{r, IMPORT}
+# import SDP locations #
+sdpLocations <- as.data.frame(read.csv("Data/dataprocessed/medianSDPlocations.csv",header = TRUE,stringsAsFactors = F))
+
+# convert lowercase x to uppercase X #
+sdpLocations[sdpLocations$chromoSDP == "x",1] <- "X"
+```
+
+###Import all mirna locations
+
+```{r miRNA locations}
+
+# import miRNA location data #
+miRlocation.df <- as.data.frame(read.table("Data/locations_mirbase.txt"))
+miRlocationNov.df <- as.data.frame(read.table("Data/locations_novel.txt"))
+
+# import miRNA data #
+miRNA.df <- read.csv("Data/dataprocessed/miRNA_avg.csv",header = T)
+
+# fix rownames #
+rownames(miRNA.df) <- miRNA.df$X
+miRNA.df <- miRNA.df[,-1]
+
+#-----------------------------------------------------#
+# CREATE miRNA location dataset and clean names       
+#-----------------------------------------------------#
+miRlocation.df <- miRlocation.df[,c(1,2,4)]
+miRlocationNov.df <- miRlocationNov.df[,c(1,2,4)]
+
+# remove characters in name before ':' in miRlocation.df #
+#-----------------------------------#
+#FUNCTION: remove characters before
+#          ':'
+#-----------------------------------#
+remBeforeSemiC <- function(mystring){
+  gsub(".*:","",mystring)
+}
+
+newMmuNames <- sapply(miRlocation.df$V4,FUN = remBeforeSemiC)
+
+# replace names in miRlocation.df #
+miRlocation.df[,3] <- newMmuNames
+
+# combine novel and other miRNAs #
+miRallLocs.df <- rbind(miRlocation.df,miRlocationNov.df)
+
+# add column names #
+colnames(miRallLocs.df) <- c("chromosome","bp","miRNA")
+
+# remove chr from chromosome column #
+chromoNoChr <- sapply(miRallLocs.df$chromosome,FUN = function(x){gsub("chr","",x)})
+miRallLocs.df$chromosome <- chromoNoChr
+
+
+#-------------------------------------------------------------#
+# match miRNA in location data to miRNA expression data 
+#-------------------------------------------------------------#
+miRNA.df$miRNA <- rownames(miRNA.df)
+
+# merge datasets matched on miRNA name #
+miRNAmatched <- merge(miRallLocs.df,miRNA.df,by = "miRNA")
+
+# save miRNAs that have multiple locations #
+miRNA.multiloc <- miRNAmatched[duplicated(miRNAmatched$miRNA)| duplicated(miRNAmatched$miRNA,fromLast = T),]
+miRNA.multiloc <- miRNA.multiloc[,1:3]
+
+```
+
+```{r,fix names pval mat}
+# import p value data for miRNA #
+
+miRNAlods <- readRDS("Data/dataprocessed/miRlodsUnadj.rds") # sdps are ordered by location
+
+# remove sdp locations #
+miRNAlods <- miRNAlods[,-c(1,2)]
+
+miRNAlods <- t(as.matrix(miRNAlods))
+
+# convert lod scores to p values #
+lodToPval <-function(x){
+  pchisq(x*(2*log(10)),df=1,lower.tail=FALSE)/2
+}
+
+miRNApval.df <- lodToPval(as.matrix(miRNAlods))
+
+
+# fix rownames #
+library(stringr)
+miRNAnames <- rownames(miRNApval.df)
+miRNAnames2 <- miRNAnames %>% str_replace_all("\\.","-") %>% str_replace("novel-","novel:")
+rownames(miRNApval.df) <- miRNAnames2
+
+# convert to data frame #
+miRNApval.df <- data.frame(miRNApval.df)
+```
+
+###Determine best locations
+
+```{r, local qtl analysis}
+dupNames <- as.factor(unique(miRNA.multiloc$miRNA))
+
+
+# run localQTLidentify function #
+pvaluesLoc.ls <- localQTLidentify(miRNApval.df,dupNames,miRNA.multiloc,sdpLocations)
+
+
+#---------------------------------------------------------------------------------#
+miRbestLocs.ls <- list()
+
+for (jj in 1:length(pvaluesLoc.ls)){
+  miRbestLocs.ls[[jj]] <- minPvalMir(pvaluesLoc.ls[[jj]],dupNames[[jj]],miRNApval.df,sdpLocations,miRNA.multiloc)
+}
+
+
+# create matrix with chromosome and bp and miRNA name #
+bestChrLoc <- unlist(lapply(miRbestLocs.ls,function(x){gsub("-.*","",x)}))
+
+bestBpLoc <- unlist(lapply(miRbestLocs.ls,function(x){gsub(".*-","",x)}))
+
+dupMirLocationsFinal <- as.data.frame(cbind(as.character(dupNames),bestChrLoc,bestBpLoc))
+colnames(dupMirLocationsFinal) <- c("miRNA","chromosome","bp")
+
+# save for further analysis #
+saveRDS(dupMirLocationsFinal,"Data/dataprocessed/finalLocationsForDuplicateMiRNA.rds")
+```
+
+```{r,best locations}
+# remove miRNA with multiple locations FOR NOW #
+miRNAdupRemoved <- miRNAmatched[!duplicated(miRNAmatched$miRNA),]
+
+# order by chromosome and then bp #
+miRNAdupRemoved$chromosome <- factor(miRNAdupRemoved$chromosome,levels = c("1","2","3","4","5","6","7","8","9","10","11","12","13","14","15","16","17","18","19","X"))
+
+
+# fix chromosome to correct position #
+miRNAdupRemoved[miRNAdupRemoved$miRNA %in% dupMirLocationsFinal$miRNA,2] <- dupMirLocationsFinal$chromosome
+
+# fix bp to correct position #
+miRNAdupRemoved[miRNAdupRemoved$miRNA %in% dupMirLocationsFinal$miRNA,3] <- as.numeric(as.character(dupMirLocationsFinal$bp))
+
+#----------------------------------------------------------------------------------------------#
+
+
+miRNA.ordered <- with(miRNAdupRemoved,miRNAdupRemoved[order(chromosome,bp),])
+
+# keep locations only #
+miRNA.ordered <- miRNA.ordered[,1:3]
+
+# write for use in heatmap creation #
+write.csv(miRNA.ordered,"Data/dataprocessed/miRNAlocations.csv")
+```
+
+###end locations
+```{r,end locations}
+#----------------------------------------------------------------------------#
+# CREATE miRNA location dataset and clean names   (move to cleaning Script)    
+#----------------------------------------------------------------------------#
+miRNAlocations <- read.csv("Data/dataprocessed/miRNAlocations.csv",header = TRUE)
+rownames(miRNAlocations) <- miRNAlocations$miRNA
+
+# remove "X" column and miRNA column #
+miRNAlocations <- miRNAlocations[,-c(1,2)]
+
+miRlocation.df <- as.data.frame(read.table("Data/locations_mirbase.txt"))
+miRlocationNov.df <- as.data.frame(read.table("Data/locations_novel.txt"))
+
+miRlocation.df <- miRlocation.df[,c(1,2,3,4)]
+miRlocationNov.df <- miRlocationNov.df[,c(1,2,3,4)]
+
+# remove characters in name before ':' in miRlocation.df #
+#-----------------------------------#
+#FUNCTION: remove characters before
+#          ':'
+#-----------------------------------#
+remBeforeSemiC <- function(mystring){
+  gsub(".*:","",mystring)
+}
+
+newMmuNames <- sapply(miRlocation.df$V4,FUN = remBeforeSemiC)
+
+# replace names in miRlocation.df #
+miRlocation.df[,4] <- newMmuNames
+
+# combine novel and other miRNAs #
+miRallLocs.df <- rbind(miRlocation.df,miRlocationNov.df)
+
+# add column names #
+colnames(miRallLocs.df) <- c("chromosome","bp start","bp end","miRNA")
+
+# remove chr from chromosome column #
+chromoNoChr <- sapply(miRallLocs.df$chromosome,FUN = function(x){gsub("chr","",x)})
+miRallLocs.df$chromosome <- chromoNoChr
+
+# add end miRNA bp position to miRNA locations #
+miRallLocs.df$chromosome <- factor(miRallLocs.df$chromosome,levels = levels(miRNAlocations$chromosome))
+
+miRNAlocations$miRNA <- rownames(miRNAlocations)
+
+miRNAlocations2 <- merge(miRNAlocations,miRallLocs.df,by.x = c("chromosome","bp","miRNA"),by.y = c("chromosome","bp start","miRNA"))
+
+colnames(miRNAlocations2) <- c("mirna chr","mir start","miRNA", "mir stop")
+
+# write location info with begin and end locations for summary analysis #
+write.csv(miRNAlocations2,"Data/dataprocessed/miRNAlocationsComplete.csv")
+```

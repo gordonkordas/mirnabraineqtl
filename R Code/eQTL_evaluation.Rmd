@@ -1,0 +1,358 @@
+---
+title: "eQTL evaluations"
+author: "Gordon Kordas"
+date: "May 6, 2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_knit$set(root.dir = "C:/Repositories/mirna_paper")
+
+rm(list = ls())
+```
+
+#miRNA
+
+##Import data and functions
+
+```{r, source}
+library(qtl)
+library(dplyr)
+library(statmod)
+library(stringr)
+
+'%ni%' <- Negate('%in%')
+source("R Code/functions/eqtl_analysis_and_eval_functions.R")
+source("R Code/functions/eqtl_cleaning_functions.R")
+heritVSTpvals <- readRDS("Data/dataprocessed/heritVSTpvals.rds")
+
+# import sdps #
+sdpLocations <- read.csv("Data/dataprocessed/medianSDPlocations.csv")
+sdpLocations$sdp <- as.numeric(rownames(sdpLocations))
+
+# import permutation lods #
+perm <- readRDS("Data/dataprocessed/miRpermsAll.rds")
+colnames(perm)[644] <- "novel.chr14_37296"
+
+# import unadjusted lods #
+out.all.miR <- readRDS("Data/dataprocessed/miRlodsUnadj.rds")
+
+# mirna qtl results #
+miRNAqtls <- readRDS("Data/dataprocessed/results_miR.rds")
+
+# mirna bayes intervals #
+miRNAbayes.ci <- readRDS("Data/dataprocessed/bayes_miR.rds")
+names(miRNAbayes.ci)[644] <- "novel.chr14_37296"
+
+# mirna locations #
+miRNAlocations <- read.csv("Data/dataprocessed/miRNAlocationsComplete.csv")
+miRNAlocations <- miRNAlocations[,-1]
+
+# mirna with multiple locations #
+miRNAdupLocs <- readRDS("Data/dataprocessed/finalLocationsForDuplicateMiRNA.rds")
+
+# grab all permutation p values from R qtl results #
+permPvals <- allPermPvals(perm,out.all.miR[,-c(1,2)]) # remove locations from unadjustd LOD matrix
+rownames(permPvals) <- colnames(out.all.miR)[-c(1,2)]
+
+# to expand bayes intervals #
+sdplocs.rsnum <- read.csv("Data/dataprocessed/sdpLocations.csv")
+colnames(sdplocs.rsnum) <- c("rsnum","chromoSDP","medianBpSDP")
+
+correspSnps <- read.csv("Data/dataprocessed/correspondingSNPs.csv")
+correspSnpLocs <- read.csv("Data/dataprocessed/correspSNPlocs.csv")
+correspSnpLocs <- correspSnpLocs[,-1]
+```
+
+##Calculate strongest eQTL for each miRNA
+
+```{r, import data,echo=FALSE}
+#----------------------------------------------#
+# filter on max LOD score and save locations 
+#----------------------------------------------#
+
+strongest_eqtl_all_mirna <- max_lod(out.all.miR,name = "mirna")
+
+# obtain permutation value for each miRNA #
+mirna_perm_pvalues <- nrow(strongest_eqtl_all_mirna)
+
+for(ii in 1:nrow(strongest_eqtl_all_mirna)){
+  mirna_perm_pvalues[ii] <- permPvals[rownames(permPvals) == strongest_eqtl_all_mirna$mirna[[ii]],
+                                      colnames(permPvals) == strongest_eqtl_all_mirna[strongest_eqtl_all_mirna$mirna == strongest_eqtl_all_mirna$mirna[[ii]],"sdp"]]
+}
+
+strongest_eqtl_all_mirna$perm_p <- mirna_perm_pvalues
+```
+
+##permutation p-value correction
+
+```{r,echo=FALSE}
+
+#===============================================#
+# calculate exact permutation p-values using
+# Phipson and Smyth approximation
+#===============================================#
+
+num_perms <- 1000
+num_perms_extr <- num_perms*strongest_eqtl_all_mirna$perm_p
+
+strongest_eqtl_all_mirna$e_perm_p <- exact_p(num_perms_extr,nperm = num_perms)
+
+#===============================================#
+# calculate FDR corrected p-values 
+#===============================================#
+
+strongest_eqtl_all_mirna$p_fdr <- p.adjust(strongest_eqtl_all_mirna$e_perm_p, method = "BH")
+levels(strongest_eqtl_all_mirna$chr)[levels(strongest_eqtl_all_mirna$chr)=="x"] <- "X"
+```
+
+##add Bayes credible interval
+
+```{r, merge ci,include=FALSE,echo=FALSE}
+# add bayes credible interval #
+colnames(strongest_eqtl_all_mirna) <- c("chr","pos","lod","miRNA","sdp","perm_p","e_perm_p","p_fdr")
+miRqtlandci <- bayesCImerge(strongest_eqtl_all_mirna,miRNAbayes.ci,"miRNA",all = TRUE) # all = T b/c we are merging all miRNA and 1 eqtl/mirna
+
+# change format of miRNA names for merging #
+miRNAnames <- miRqtlandci$miRNA
+miRNAnames2 <- miRNAnames %>% str_replace_all("\\.","-") %>% str_replace("novel-","novel:")
+miRqtlandci$miRNA <- miRNAnames2
+colnames(miRqtlandci) <- c("qtlChr","qtlPos","lod","miRNA","sdp","perm_p","e_perm_p","p_fdr","bayesLow","bayesHi")
+
+#----------------------------------------#
+# expand zero width bayes intervals
+#----------------------------------------#
+sdpsnpmatch <- cbind(correspSnps,correspSnpLocs)
+
+miRqtl_zeroWidth <- miRqtlandci %>% dplyr::filter(bayesLow == bayesHi)
+miRqtl_expandedWid <- expandToSnps(miRqtl_zeroWidth,sdplocs.rsnum,sdpsnpmatch)
+
+# merge back with master table #
+miRqtlandci[miRqtlandci$miRNA %in% miRqtl_zeroWidth$miRNA,c("bayesLow","bayesHi")] <- miRqtl_expandedWid[,c("cilow","cihi")]
+
+# save to final figure file #
+saveRDS(miRqtlandci,"Data/dataprocessed/tables/mirqtl_all.rds")
+```
+
+##miRNA qtl evaluations
+
+```{r,echo = FALSE}
+#----------------------------------------#
+# merge miRNA locations with qtl data 
+#----------------------------------------#
+miRNAlocations$miRNA <- as.character(miRNAlocations$miRNA)
+miRNAlocations$miRNA[miRNAlocations$miRNA == "mmu-miR-3102-3p.2-3p"] <- "mmu-miR-3102-3p-2-3p" # check what is going on with the naming here
+miRNAlocations$miRNA[miRNAlocations$miRNA == "mmu-miR-3102-5p.2-5p"] <- "mmu-miR-3102-5p-2-5p"
+
+miRqtlandci <- merge(miRqtlandci,miRNAlocations,by = "miRNA")
+```
+
+```{r,mirna evaluations}
+#---------------------------------------------#
+# miRNA with multiple locations 
+#---------------------------------------------#
+
+# how many significant eQTL miRNA have multiple locations?
+miRqtlandci$dupLocs <- ifelse(miRqtlandci$miRNA %in% miRNAdupLocs$miRNA == TRUE, 1, 0)
+
+#---------------------------------------------#
+# novel vs. annotated miRNA 
+#---------------------------------------------#
+
+# add column determining if novel or not #
+miRqtlandci$novel <- ifelse(grepl("novel",miRqtlandci$miRNA) == TRUE, 1, 0)
+
+#--------------------------------------------#
+# cis vs trans eQTL
+#--------------------------------------------#
+
+# window to define as cis? Expression quantitative trait loci: present and future (Nica 2013)
+# cis: within one Mb on either side of location
+# trans: at least 5 Mb away on either side or different chromosome
+
+miRqtlandci$cis <- cisVsTransQtl(miRqtlandci$mirna.chr,miRqtlandci$qtlChr,miRqtlandci$mir.start,miRqtlandci$qtlPos)
+
+#---------------------------------------------#
+# intronic vs. intergenic 
+#---------------------------------------------#
+
+# from UCSC table browser, ccdsGene as BED file, introns, using genes and gene predictions
+intronsUCSC <- read.table("Data/intronsUCSC.txt",header = T) 
+
+intronRegions <- intronsUCSC[,1:3]
+colnames(intronRegions) <- c("chr","start","end")
+
+# fix chromosome names #
+chrClean <- as.character(intronRegions$chr) %>% str_replace("chr", "")
+intronRegions$chr <- chrClean
+
+# determine if miRNA reside in introns #
+intron.col <- intronic(intronRegions,miRqtlandci$mirna.chr,miRqtlandci$mir.start,miRqtlandci$miRNA,"miRNA")
+
+miRqtlandci <- merge(miRqtlandci,intron.col,by.x = "miRNA",by.y = "miRNA")
+```
+
+##Conservation Analysis
+
+```{r, conservation}
+#----------------------------------------------#
+# write data for UCSC genome browser for 
+# conservation analysis
+#----------------------------------------------#
+
+conservationIn <- miRqtlandci %>% filter(p_fdr < 0.05) %>% dplyr::select(mirna.chr,mir.start,mir.stop,miRNA)
+ 
+conservationIn$mirna.chr <- sub("^", "chr",conservationIn$mirna.chr)
+conservationIn$mir.start <- format(conservationIn$mir.start,big.mark=",", trim=TRUE)
+conservationIn$mir.stop <- format(conservationIn$mir.stop,big.mark=",", trim=TRUE)
+conservationIn$formatted <- paste(conservationIn$mirna.chr,":",conservationIn$mir.start,
+                                  "-",conservationIn$mir.stop,"  ",conservationIn$miRNA,sep = "")
+
+conservationIn <- conservationIn %>% dplyr::select(formatted)
+colnames(conservationIn) <- NULL
+ 
+# write to BED file #
+write.table(conservationIn,"Data/dataprocessed/conservationIn.bed",quote = FALSE,sep = "",row.names = FALSE)
+
+#-------------------------------------------------------------------------------------------------#
+# Conservation analysis parameters: Table browser,assembly: Dec 2011 (GRCm38/mm10),
+#                                   Comparative genomics, 60 Vert Cons, input: conservationIn.BED
+#-------------------------------------------------------------------------------------------------#
+conservationOut <- read.csv("Data/dataprocessed/conserveOut.csv",header = TRUE,stringsAsFactors = FALSE)
+
+# keep only locations and mean phastcon score #
+conservationOut <- conservationOut[,c("chrom","start","end","mean")]
+
+conservationOut$chrom <- sub("chr", "", conservationOut$chrom)
+
+miRqtlandci <- left_join(miRqtlandci,conservationOut, by = c("mirna.chr" = "chrom","mir.start" = "start"))
+
+# # add phastCon score (mean) to summary of qtls #
+
+miRqtlandci <- miRqtlandci[,!colnames(miRqtlandci) %in% c("end")]
+
+colnames(miRqtlandci)[colnames(miRqtlandci) == "mean"] <- "meanPhastCon"
+```
+
+```{r, heritability}
+#---------------------------------------------#
+# heritability
+#---------------------------------------------#
+
+# import vpc values #
+vpc <- readRDS("Data/dataprocessed/heritVPC_vst.rds") %>% as.data.frame()
+vpc$mirna <- rownames(vpc)
+
+# fix names #
+vpc$mirna[vpc$mirna == "mmu-miR-3102-3p.2-3p"] <- "mmu-miR-3102-3p-2-3p"
+vpc$mirna[vpc$mirna == "mmu-miR-3102-5p.2-5p"] <- "mmu-miR-3102-5p-2-5p"
+
+miRqtlandci <- dplyr::inner_join(miRqtlandci,vpc,by = c("miRNA" = "mirna"))
+colnames(miRqtlandci)[colnames(miRqtlandci) == "LMM"] <- "vpc"
+```
+
+```{r,writeout ,echo=FALSE}
+saveRDS(miRqtlandci,"Data/dataprocessed/tables/mir_qtl_all_evals.rds")
+
+# limit to just significant eQTL #
+mirqtlsig <- miRqtlandci %>% filter(p_fdr < 0.05)
+```
+
+##Characteristics of significant mi-eQTL
+
+```{r,echo = FALSE}
+summary_tbl <- mirqtlsig %>% dplyr::select(c("dupLocs","novel","cis","intron")) %>% colSums()
+summary_tbl / 38
+
+# trans mi-eQTL? #
+mirqtlsig %>% dplyr::filter(cis == 0) %>% dplyr::select(miRNA)
+```
+
+#mRNA
+
+##eQTL results evaluation and summary table creation
+
+```{r, import data,echo=FALSE}
+# mirna qtl results #
+mRNAqtls <- readRDS("Data/dataprocessed/results_mRNA.rds")
+colnames(mRNAqtls) <- c("sdps","mRNA","pvalue","lod","chr","pos")
+
+# mirna bayes intervals #
+mRNAbayes.ci <- readRDS("Data/dataprocessed/bayes_mRNA.rds")
+
+# mirna locations #
+mRNAlocations <- readRDS("Data/dataprocessed/mRNAlocations.rds")
+
+# all unadjusted lods #
+mRNAlods <- readRDS("Data/dataprocessed/mRNAlodsUnadj.rds")
+
+# all permutations
+operm.all.mRNA <- readRDS("Data/dataprocessed/mRNApermsAll.rds")
+
+# grab all permutation p values from R qtl results #
+permPvals <- allPermPvals(operm.all.mRNA,mRNAlods[,-c(1,2)]) # remove locations from unadjustd LOD matrix
+rownames(permPvals) <- colnames(mRNAlods)[-c(1,2)]
+
+#saveRDS(permPvals,"Data/dataprocessed/mrna_perm_p_values.rds")
+```
+
+##Significant g-eQTL
+
+```{r,echo = FALSE}
+
+strongest_eqtl_all_mrna <- max_lod(mRNAlods,"mrna")
+
+# obtain permutation value for each miRNA #
+mrna_perm_pvalues <- nrow(strongest_eqtl_all_mrna)
+
+for(ii in 1:nrow(strongest_eqtl_all_mrna)){
+  mrna_perm_pvalues[ii] <- permPvals[rownames(permPvals) == strongest_eqtl_all_mrna$mrna[[ii]],
+                                      colnames(permPvals) == strongest_eqtl_all_mrna[strongest_eqtl_all_mrna$mrna == strongest_eqtl_all_mrna$mrna[[ii]],"sdp"]]
+}
+
+strongest_eqtl_all_mrna$perm_p <- mrna_perm_pvalues
+
+#===============================================#
+# calculate exact permutation p-values using
+# Phipson and Smyth approximation
+#===============================================#
+
+numstrains <- 59
+num_perms <- 1000
+num_perms_extr <- num_perms*strongest_eqtl_all_mrna$perm_p
+
+# calculate exact perm p-values #
+strongest_eqtl_all_mrna$e_perm_p <- exact_p(num_perms_extr,nperm = num_perms)
+
+
+#===============================================#
+# calculate FDR corrected p-values 
+#===============================================#
+
+strongest_eqtl_all_mrna$p_fdr <- p.adjust(strongest_eqtl_all_mrna$e_perm_p, method = "BH")
+
+# significant g-eQTL #
+mrna_sig_eqtl <- strongest_eqtl_all_mrna %>% dplyr::filter(p_fdr < 0.05) #2389 mRNA
+#saveRDS(mrna_sig_eqtl,"Data/dataprocessed/mrna_sig_eqtl.rds")
+```
+
+```{r, merge ci,include=FALSE,echo=FALSE}
+#-------------------------------------------------------------------------------#
+# limit eQTLs to one per chromosome (i.e. within the Bayes credible interval)
+#-------------------------------------------------------------------------------#
+mRNAqtlandci <- bayesCImerge(mRNAqtls,mRNAbayes.ci,"mRNA")
+
+#----------------------------------------#
+# merge mRNA locations with qtl data 
+#----------------------------------------#
+mRNAqtlandci <- merge(mRNAqtlandci,mRNAlocations,by.x = "mRNA",by.y = "ensembl_gene_id")
+colnames(mRNAqtlandci) <- c("mRNA","qtlChr","sdp","pval","lod","qtlPos","bayesLow","bayesHi","mRNAchr","mRNAstart","mRNAend")
+
+# reorder table #
+mRNAqtlandci <- mRNAqtlandci[,c(1,9,10,11,3,2,6,7,8,4,5)]
+mRNAqtlandci <- mRNAqtlandci[order(mRNAqtlandci$lod,decreasing = T),]
+
+# save qtl table with no additional evaluations #
+saveRDS(mRNAqtlandci,"Data/dataprocessed/tables/mRNAqtlTableNoEvals.rds")
+```

@@ -1,0 +1,107 @@
+---
+title: "eQTL analysis"
+author: "Gordon Kordas"
+date: "May 06, 2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_knit$set(root.dir = "C:/Repositories/mirna_paper")
+
+rm(list = ls())
+```
+
+```{r, source}
+library(qtl)
+
+source("R Code/functions/eqtl_analysis_and_eval_functions.R")
+source("R Code/functions/eqtl_cleaning_functions.R")
+```
+
+##miRNA analysis
+
+```{r, qtl analysis}
+# import data using qtl package functions #
+qtl.miR <- read.cross("csvs",genfile = "Data/dataprocessed/sdpForQtlPackage.csv",
+                      phefile = "Data/dataprocessed/miRNAqtlPackage.csv",na.strings = "NA",genotypes = c("AA","BB"),
+                      alleles = c("A","B"),estimate.map = FALSE,convertXdata = TRUE)
+
+# convert to recombinant inbred type #
+qtl.miR <- convert2risib(qtl.miR)
+
+#=========================================================#
+# perform marker regression for miRNA 
+#=========================================================#
+
+# view summary of all phenotypes at once #
+out.all.miR <- scanone(qtl.miR,pheno.col = 1:881,method = "mr")
+saveRDS(out.all.miR,"Data/dataprocessed/miRlodsUnadj.rds")
+
+# permutation for all phenotypes #
+library(snow)
+cl <- makeCluster(6, type = "SOCK") # parallel
+
+
+set.seed(88)
+operm.all.miR <- scanone(qtl.miR,pheno.col = 1:881,method = "mr",n.perm = 1000,verbose = TRUE)
+saveRDS(operm.all.miR,"Data/dataprocessed/miRpermsAll.rds")
+
+stopCluster(cl)
+
+### extract results ###
+results.miR <- extractFromRqtl(out.all.miR,operm.all.miR, 0.05, 881,qtl.miR)
+saveRDS(results.miR,"Data/dataprocessed/results_miR.rds")
+
+
+### obtain bayes credible invertals ###
+bayes.miR <- bayesRqtls(qtl.miR,881)
+
+### save results ###
+saveRDS(bayes.miR,"Data/dataprocessed/bayes_miR.rds")
+```
+
+##mRNA analysis
+
+```{r, qtl analysis}
+# import data using qtl package functions #
+qtl.mRNA <- read.cross("csvs",genfile = "Data/dataprocessed/sdpForQtlPackage.csv",
+                      phefile = "Data/dataprocessed/mRNAqtlPackage.csv",na.strings = "NA",genotypes = c("AA","BB"),
+                      alleles = c("A","B"),estimate.map = FALSE,convertXdata = TRUE)
+
+# convert to recombinant inbred type #
+qtl.mRNA <- convert2risib(qtl.mRNA)
+
+#=========================================================#
+# perform marker regression for mRNA (recommend running on server, as it takes a few days)
+#=========================================================#
+
+# view summary of all phenotypes at once #
+out.all.mRNA <- scanone(qtl.mRNA,pheno.col = 1:27123,method = "mr")
+saveRDS(out.all.mRNA,"Data/dataprocessed/mRNAlodsUnadj.rds")
+
+
+# permutation for all phenotypes #
+library(snow)
+cl <- makeCluster(4, type = "SOCK") # parallel
+
+
+set.seed(88)
+operm.all.mRNA <- scanone(qtl.mRNA,pheno.col = 1:27123,method = "mr",n.perm = 1000,verbose = TRUE)
+saveRDS(operm.all.mRNA,"Data/dataprocessed/mRNApermsAll.rds")
+
+stopCluster(cl)
+
+out.all.mRNA <- readRDS("Data/dataprocessed/mRNAlodsUnadj.rds")
+operm.all.mRNA <- readRDS("Data/dataprocessed/mRNApermsAll.rds")
+
+### extract results ###
+results.mRNA <- extractFromRqtl(out.all.mRNA,operm.all.mRNA, 0.05, 27123,qtl.mRNA)
+saveRDS(results.mRNA,"Data/dataprocessed/results_mRNA.rds")
+
+### obtain bayes credible invertals ###
+bayes.mRNA <- bayesRqtls(qtl.mRNA,27123)
+
+### save results ###
+saveRDS(bayes.mRNA,"Data/dataprocessed/bayes_mRNA.rds")
+```
