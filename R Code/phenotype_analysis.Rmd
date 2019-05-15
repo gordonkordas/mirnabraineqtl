@@ -26,19 +26,9 @@ source("R Code/functions/phenotype_analysis_functions.R")
 
 ##Import LXS phenotypes
 
-```{r, import, echo = FALSE,eval = FALSE}
-aft_pheno <- read.table("Data/phenotypes/bennett_st_aft.txt")
-lorr_pheno <- read.table("Data/phenotypes/LORR.geneNEtwork.reformatted.txt")
-lda_pheno <- read.table("Data/phenotypes/LXS_LDA.txt",fill = TRUE, header = TRUE)  #line 22 did not have 17 elements
-did_pheno <- read.table("Data/phenotypes/vanderlinden_did.txt")
-
-# using Pratyay's data object #
-load("Data/phenotypes/code/alldata.RObj") # to double check which data to use for analysis
-```
-
 ```{r,echo = FALSE}
 # import Radcliffe/Bennett Data #
-bennett_pheno <- read.csv("Data/phenotypes/bennett_paper_phenos.csv",na.strings = "x")
+bennett_pheno <- read.csv("Data/bennett_paper_phenos.csv",na.strings = "x")
 rownames(bennett_pheno) <- paste("LXS",bennett_pheno$LXS.Strain..,sep = "")
 
 # keep only mean values (only care about saline treated?)#

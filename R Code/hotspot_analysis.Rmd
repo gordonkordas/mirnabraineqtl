@@ -180,7 +180,7 @@ mirna_hotspot_ls <- lapply(mirna_hotspot_ls, FUN = function(X){gsub("\\.","-",X)
 
 # write out table for each hotspot #
 for (ii in 1:length(mirna_hotspot_ls)){
-  write.table(mirna_hotspot_ls[[ii]],file = paste("Data/dataprocessed/hotspots3/hotspot_",ii,".txt",sep = ""),
+  write.table(mirna_hotspot_ls[[ii]],file = paste("Data/dataprocessed/hotspots/hotspot_",ii,".txt",sep = ""),
             quote = FALSE, sep = "\n",row.names = FALSE,col.names = FALSE)
 }
 ```
