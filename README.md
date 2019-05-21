@@ -4,4 +4,4 @@ This repository contains the code necessary to run the analyses in Insight Into 
 
 ![alt text](https://github.com/gordonkordas/mirnabraineqtl/blob/master/images/code_flowchart.PNG)
 
-The order of files 6 through 10 does not really matter.
+The order of eQTL_target_genes,hotspot_analysis, and bayesian_network_analysis does not matter.
