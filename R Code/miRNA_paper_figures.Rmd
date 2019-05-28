@@ -9,7 +9,7 @@ output:
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
-knitr::opts_knit$set(root.dir = "C:/Repositories/mirna_paper")
+knitr::opts_knit$set(root.dir = "C:/Repositories/mirnabraineqtl")
 
 rm(list = ls())
 
@@ -63,7 +63,7 @@ miRNAlocations <- read.csv("Data/dataprocessed/miRNAlocationsComplete.csv")
 miRNAlocations <- miRNAlocations[,-1]
 
 miRNAlocations$miRNA <- as.character(miRNAlocations$miRNA)
-miRNAlocations$miRNA[miRNAlocations$miRNA == "mmu-miR-3102-3p.2-3p"] <- "mmu-miR-3102-3p-2-3p" # check what is going on with the naming here
+miRNAlocations$miRNA[miRNAlocations$miRNA == "mmu-miR-3102-3p.2-3p"] <- "mmu-miR-3102-3p-2-3p"
 miRNAlocations$miRNA[miRNAlocations$miRNA == "mmu-miR-3102-5p.2-5p"] <- "mmu-miR-3102-5p-2-5p"
 ```
 
@@ -483,8 +483,8 @@ mir_seqs <- getMiRNASequence(mir_acc$Accession)
 seqs_mirbase <- tolower(mir_seqs$miRNASequence_v22)
 
 # write to txt file for determining homologs in miRbase #
-#write.table(seqs_mirbase,"Data/dataprocessed/mirna_seqs_for_mirbase.txt",sep = "\n",
-#            row.names = FALSE,col.names = FALSE,quote = FALSE)
+write.table(seqs_mirbase,"Data/dataprocessed/mirna_seqs_for_mirbase.txt",sep = "\n",
+            row.names = FALSE,col.names = FALSE,quote = FALSE)
 
 orthos <- read.table("Data/dataprocessed/mirbase_homologs.txt")
 
