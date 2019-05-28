@@ -7,7 +7,7 @@ output: html_document
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
-knitr::opts_knit$set(root.dir = "C:/Repositories/mirna_paper")
+knitr::opts_knit$set(root.dir = "C:/Repositories/mirnabraineqtl")
 
 rm(list = ls())
 ```

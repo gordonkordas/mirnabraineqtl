@@ -7,7 +7,7 @@ output: html_document
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
-knitr::opts_knit$set(root.dir = "C:/Repositories/mirna_paper")
+knitr::opts_knit$set(root.dir = "C:/Repositories/mirnabraineqtl")
 
 library(magrittr)
 library(dplyr)
@@ -127,7 +127,7 @@ hotspots.mat <- hotspots.mat[order(hotspots.mat$chromoSDP,hotspots.mat$medianBpS
 hotspots.mat$location <- c(1:nrow(hotspots.mat))
 
 # save for plot in paper figure file #
-#saveRDS(hotspots.mat,"Data/dataprocessed/hotspot_plot_mat.rds")
+saveRDS(hotspots.mat,"Data/dataprocessed/hotspot_plot_mat.rds")
 ```
 
 ##Limit to Significant hotspots

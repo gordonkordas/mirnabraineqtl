@@ -8,7 +8,7 @@ output: html_document
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 
-knitr::opts_knit$set(root.dir = "C:/Repositories/mirna_paper")
+knitr::opts_knit$set(root.dir = "C:/Repositories/mirnabraineqtl")
 
 rm(list = ls())
 ```
@@ -38,7 +38,7 @@ genotype.alleles <- geno.alleles(genotype2)
 
 # remove rows with missingness #
 genotype.alleles.complete <- genotype.alleles[complete.cases(genotype.alleles),]
-#saveRDS(genotype.alleles.complete,"Data/dataprocessed/genotypeAllelesComp.rds")
+saveRDS(genotype.alleles.complete,"Data/dataprocessed/genotypeAllelesComp.rds")
 
 
 #===================================#
@@ -54,7 +54,7 @@ saveRDS(parent_df,"Data/dataprocessed/parent_allele_match.rds")
 snpLocs <- genotype[genotype$rs.Number %in% rownames(genotype.alleles.complete),]
 rownames(snpLocs) <- snpLocs$rs.Number
 
-#saveRDS(snpLocs[,c(2,3)],"Data/dataprocessed/snpLocations.rds")
+saveRDS(snpLocs[,c(2,3)],"Data/dataprocessed/snpLocations.rds")
 
 # compress down to strain distribution patterns #
 genotype.sdp <- unique(genotype.alleles.complete)
@@ -67,7 +67,7 @@ newGenoNames <- colStrings2 %>% str_replace("m", "")
 # add new colnames to genotype dataframe #
 colnames(genotype.sdp) <- newGenoNames
 
-#saveRDS(genotype.sdp,"Data/dataprocessed/sdpData.rds")
+saveRDS(genotype.sdp,"Data/dataprocessed/sdpData.rds")
 ```
 
 ###genotype locations
@@ -104,7 +104,7 @@ match.keys <- factor(match.keys)
 levels(match.keys) <- rownames(genotype.sdp)
 match.df <- cbind(as.character(match.keys),rownames(genotype.alleles.complete))
 colnames(match.df) <- c("sdp","snp")
-#write.csv(match.df,"Data/dataprocessed/correspondingSNPs.csv",row.names = FALSE)
+write.csv(match.df,"Data/dataprocessed/correspondingSNPs.csv",row.names = FALSE)
 
 # combine chromosome, bp, and matching keys for SDP #
 sdpLocation.df <- as.data.frame(cbind(chromosome,bp.vec,match.keys))
@@ -124,7 +124,7 @@ sdpLoc.df <- as.data.frame(cbind(chromoSDP,as.integer(medianBpSDP)))
 sdpLoc.df$V2 <- as.numeric(as.character(sdpLoc.df$V2))
 colnames(sdpLoc.df) <- c("chromoSDP","medianBpSDP")
 
-#write.csv(sdpLoc.df,"Data/dataprocessed/medianSDPlocations.csv",row.names = FALSE) # without rs.number
+write.csv(sdpLoc.df,"Data/dataprocessed/medianSDPlocations.csv",row.names = FALSE) # without rs.number
 ```
 
 ```{r, data with names}
@@ -153,9 +153,6 @@ write.csv(sdpForQTLpackage,"Data/dataprocessed/sdpForQtlPackage.csv",row.names =
 load('Data/mirna.data.RObj') # from Pratyay Rudra on 09/12/2018
 
 miRNA09.12.2018 <- mirna.nb.adj  # this is the data file that Pratyay Rudra used in his subsequent papers
-
-# save heritability results from Pratyaya Rudra for eQTL evaluation #
-load('Data/herit.analysis.done.Robj')
 ```
 
 ###clean mirna names
@@ -186,7 +183,7 @@ cds <- estimateSizeFactors(cds)
 cds <- estimateDispersions(cds, fitType = "local")
 vsd <- DESeq2::varianceStabilizingTransformation(cds, fitType = "local")
 miRNA09.12.2018.vst <- assay(vsd)
-#write.csv(miRNA09.12.2018.vst,"Data/dataprocessed/miRNA_all_samples.csv")
+write.csv(miRNA09.12.2018.vst,"Data/dataprocessed/miRNA_all_samples.csv")
 ```
 
 ###average across strains

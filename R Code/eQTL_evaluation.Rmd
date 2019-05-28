@@ -7,7 +7,7 @@ output: html_document
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
-knitr::opts_knit$set(root.dir = "C:/Repositories/mirna_paper")
+knitr::opts_knit$set(root.dir = "C:/Repositories/mirnabraineqtl")
 
 rm(list = ls())
 ```
@@ -142,7 +142,7 @@ saveRDS(miRqtlandci,"Data/dataprocessed/tables/mirqtl_all.rds")
 # merge miRNA locations with qtl data 
 #----------------------------------------#
 miRNAlocations$miRNA <- as.character(miRNAlocations$miRNA)
-miRNAlocations$miRNA[miRNAlocations$miRNA == "mmu-miR-3102-3p.2-3p"] <- "mmu-miR-3102-3p-2-3p" # check what is going on with the naming here
+miRNAlocations$miRNA[miRNAlocations$miRNA == "mmu-miR-3102-3p.2-3p"] <- "mmu-miR-3102-3p-2-3p"
 miRNAlocations$miRNA[miRNAlocations$miRNA == "mmu-miR-3102-5p.2-5p"] <- "mmu-miR-3102-5p-2-5p"
 
 miRqtlandci <- merge(miRqtlandci,miRNAlocations,by = "miRNA")
@@ -334,7 +334,7 @@ strongest_eqtl_all_mrna$p_fdr <- p.adjust(strongest_eqtl_all_mrna$e_perm_p, meth
 
 # significant g-eQTL #
 mrna_sig_eqtl <- strongest_eqtl_all_mrna %>% dplyr::filter(p_fdr < 0.05) #2389 mRNA
-#saveRDS(mrna_sig_eqtl,"Data/dataprocessed/mrna_sig_eqtl.rds")
+saveRDS(mrna_sig_eqtl,"Data/dataprocessed/mrna_sig_eqtl.rds")
 ```
 
 ```{r, merge ci,include=FALSE,echo=FALSE}
