@@ -1,6 +1,5 @@
 #=====================================================#
-# TITLE: eQTL functions from Pratyay Rudra's code     #
-#        and other functions for eQTL data cleaning   #
+# TITLE: Functions for data cleaning                  #
 # AUTHOR: Gordon Kordas                               #
 # DATE: 09/13/2018                                    #
 #######################################################

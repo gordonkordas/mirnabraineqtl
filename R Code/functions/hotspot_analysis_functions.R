@@ -7,7 +7,7 @@
 
 
 #=============================================#
-# FUNCTION: Similiar to Brem method but 
+# FUNCTION: Brem method.
 #           output p-value to allow FDR
 #           correction
 #=============================================#

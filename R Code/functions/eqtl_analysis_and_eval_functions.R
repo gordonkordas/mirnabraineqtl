@@ -1,6 +1,6 @@
 #=====================================================#
-# TITLE: eQTL functions from Pratyay Rudra's code     #
-#        and other functions for eQTL analysis        #
+# TITLE: Functions for eQTL analysis and evaluation   #
+#        of eQTL results                              #
 # AUTHOR: Gordon Kordas                               #
 # DATE: 05/07/2019                                    #
 #######################################################

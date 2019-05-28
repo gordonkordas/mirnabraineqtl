@@ -1,7 +1,7 @@
 #######################################
-# TITLE: Phenotype Analysis Functions
-# AUTHOR: Gordon Kordas
-# DATE: 03/01/2019
+# TITLE: Phenotype Analysis Functions #
+# AUTHOR: Gordon Kordas               #
+# DATE: 03/01/2019                    #
 #######################################
 
 #=================================#
@@ -90,10 +90,4 @@ pheno_sig <- function(pheno_qtl){
   pheno_qtl$sdp <- rownames(pheno_qtl)
   return(pheno_qtl %>% dplyr::filter(pval < 0.05))
 }
-
-
-
-
-
-
 

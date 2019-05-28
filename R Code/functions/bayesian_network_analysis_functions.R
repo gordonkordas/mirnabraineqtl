@@ -1,5 +1,6 @@
 #=====================================================#
-# TITLE: functions for mediation analysis of mirna    #
+# TITLE: functions for Bayesian Network Analysis of   #
+#        miRNA expression                             #
 # AUTHOR: Gordon Kordas                               #
 # DATE: 05/09/2019                                    #
 #######################################################
@@ -87,11 +88,6 @@ mediation_boot <- function(overlap, mrna_expr_data, mirna_expr_data, geno_data,
                                  type = "perc")[[4]]
 
     propmed_vec[[ii]] <- c(unname(propmedresults[[1]]), propmed_ci[[4]], propmed_ci[[5]])
-    
-    
-    # bootstrap p-value #
-    #cvs <- quantile(bootresults$t0 - bootresults$t + 0, c(0.025, 0.975)) # null is that med is 0, centered at med est.
-    #mean(bootresults$t > cvs[1] & bootresults$t < cvs[2]) #0.298
     
     print(ii)
   }
