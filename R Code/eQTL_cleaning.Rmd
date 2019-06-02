@@ -161,6 +161,8 @@ cleanNames <- lxsCleanMirNames(rownames(miRNA09.12.2018),miRNA09.12.2018)
 rownames(miRNA09.12.2018) <- cleanNames
 
 # heritablility p values #
+load('Data/herit.analysis.done.Robj')
+
 rownames(pval.vst) <- cleanNames
 #saveRDS(pval.vst,"Data/dataprocessed/heritVSTpvals.rds")
 rownames(vpc.vst) <- cleanNames
